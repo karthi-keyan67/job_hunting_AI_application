@@ -72,9 +72,32 @@ def parse_resume(content: bytes, extension: str) -> dict:
                 sections[active].append(cleaned)
     emails = list(dict.fromkeys(re.findall(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I)))
     phones = list(dict.fromkeys(re.findall(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)", text)))
+    experience = re.search(r"(\d{1,2})\s*\+?\s*(?:years?|yrs?)\s+(?:of\s+)?experience", text, re.I)
+    if experience is None:
+        months = re.search(r"(\d{1,3})\s*\+?\s*months?\s+(?:of\s+)?experience", text, re.I)
+        experience_months = int(months.group(1)) if months else None
+    else:
+        experience_months = int(experience.group(1)) * 12
+    data = {"name": name, "emails": emails, "phone_numbers": phones, **sections}
+    job_titles: list[str] = []
+    title_terms = re.compile(r"\b(engineer|developer|analyst|manager|scientist|designer|architect|consultant|intern|lead|director|specialist|administrator)\b", re.I)
+    for entry in sections.get("experience", []):
+        parts = re.split(r"\s+(?:at|@|\||•|—|–|-)\s+", entry, maxsplit=2, flags=re.I)
+        title = next((part for part in parts if title_terms.search(part)), None)
+        if title:
+            title = re.sub(r"\b(?:19|20)\d{2}\b.*$", "", title)
+            title = re.sub(r"\b\d{1,3}\s*\+?\s*(?:years?|yrs?|months?)\b.*$", "", title, flags=re.I).strip(" ,;|—–-")
+            if 2 < len(title) <= 120 and title.casefold() not in {item.casefold() for item in job_titles}:
+                job_titles.append(title)
+        if len(job_titles) >= 30:
+            break
+    if job_titles:
+        data["job_titles"] = job_titles
+    if experience_months is not None:
+        data["experience_months"] = experience_months
     return {
         "text": text,
-        "data": {"name": name, "emails": emails, "phone_numbers": phones, **sections},
+        "data": data,
         "status": "COMPLETED",
         "error": None,
     }

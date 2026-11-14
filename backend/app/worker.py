@@ -1,28 +1,15 @@
-"""One-shot worker entrypoint. No recurring schedule is enabled by Phase 4."""
+"""Dedicated background process for scheduled automation and notification delivery."""
 import asyncio
+import logging
 
-from sqlalchemy import select
+from app.services.automation import scheduler_loop
 
-from app.core.database import SessionFactory
-from app.models.jobs import JobSource
-from app.services.jobs import JobService
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 
-async def collect_enabled_sources() -> list[dict]:
-    async with SessionFactory() as session:
-        sources = await session.execute(select(JobSource.id, JobSource.user_id).where(JobSource.is_enabled.is_(True), JobSource.user_id.is_not(None)))
-        targets = list(sources.all())
-    results = []
-    for source_id, user_id in targets:
-        async with SessionFactory() as session:
-            try:
-                run = await JobService(session).collect_source(source_id, user_id)
-                results.append({"source_id": str(source_id), "run_id": str(run.id), "status": run.status.value})
-            except Exception as exc:
-                # Keep processing other configured sources after one source-level failure.
-                results.append({"source_id": str(source_id), "status": "FAILED", "error_type": type(exc).__name__})
-    return results
+async def main():
+    await scheduler_loop()
 
 
 if __name__ == "__main__":
-    print(asyncio.run(collect_enabled_sources()))
+    asyncio.run(main())

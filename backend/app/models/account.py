@@ -24,7 +24,10 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     job_reviews: Mapped[list["JobReview"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     applications: Mapped[list["Application"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    automation_settings: Mapped["AutomationSettings | None"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
     audit_logs: Mapped[list["ApplicationAuditLog"]] = relationship(back_populates="actor")
+    interviews: Mapped[list["Interview"]] = relationship()
+    follow_ups: Mapped[list["FollowUp"]] = relationship()
 
 
 class UserProfile(UUIDPrimaryKey, Timestamped, Base):
@@ -73,6 +76,8 @@ class JobPreference(UUIDPrimaryKey, Timestamped, Base):
     preferred_locations: Mapped[list[str]] = mapped_column(json_array_type(), default=list, nullable=False)
     work_modes: Mapped[list[str]] = mapped_column(json_array_type(), default=list, nullable=False)
     excluded_companies: Mapped[list[str]] = mapped_column(json_array_type(), default=list, nullable=False)
+    excluded_roles: Mapped[list[str]] = mapped_column(json_array_type(), default=list, nullable=False)
+    employment_types: Mapped[list[str]] = mapped_column(json_array_type(), default=list, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     user: Mapped[User] = relationship(back_populates="preferences")
 
@@ -140,3 +145,16 @@ class RefreshToken(UUIDPrimaryKey, Timestamped, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     replaced_by_hash: Mapped[str | None] = mapped_column(String(64))
     user: Mapped[User] = relationship(back_populates="refresh_tokens")
+
+
+class AuthLoginAttempt(UUIDPrimaryKey, Base):
+    __tablename__ = "auth_login_attempts"
+    __table_args__ = (
+        UniqueConstraint("key_hash", name="uq_auth_login_attempts_key_hash"),
+        CheckConstraint("attempts > 0", name="attempts_positive"),
+        Index("ix_auth_login_attempts_window_started", "window_started"),
+    )
+
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_started: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False)

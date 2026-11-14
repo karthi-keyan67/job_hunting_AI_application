@@ -7,7 +7,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -56,18 +56,19 @@ def migrate_test_database():
         cleanup_engine = create_async_engine(TEST_DATABASE_URL, pool_pre_ping=True)
         try:
             async with cleanup_engine.begin() as connection:
+                await connection.execute(text("SELECT set_config('app.audit_cleanup', 'on', true)"))
                 for table in reversed(Base.metadata.sorted_tables):
                     await connection.execute(delete(table))
         finally:
             await cleanup_engine.dispose()
 
     asyncio.run(clear_rows())
-    command.downgrade(config, "base")
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def clean_test_database(migrate_test_database, test_engine):
     async with test_engine.begin() as connection:
+        await connection.execute(text("SELECT set_config('app.audit_cleanup', 'on', true)"))
         for table in reversed(Base.metadata.sorted_tables):
             await connection.execute(delete(table))
     yield

@@ -26,14 +26,33 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       DATABASE_URL: ${DATABASE_URL:-}
+      APP_ENV: ${APP_ENV:-development}
       RESUME_STORAGE_ROOT: /data/resumes
       MAX_RESUME_UPLOAD_BYTES: ${MAX_RESUME_UPLOAD_BYTES:-5242880}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      MATCHING_AI_ENABLED: ${MATCHING_AI_ENABLED:-false}
+      MATCHING_TIMEOUT_SECONDS: ${MATCHING_TIMEOUT_SECONDS:-20}
+      MATCHING_WEIGHTS: ${MATCHING_WEIGHTS:-}
+      MATCHING_MAX_BATCH: ${MATCHING_MAX_BATCH:-50}
+      MATCHING_MAX_AI_CALLS: ${MATCHING_MAX_AI_CALLS:-8}
+      MATCHING_RATE_LIMIT_PER_MINUTE: ${MATCHING_RATE_LIMIT_PER_MINUTE:-10}
+      APPLICATION_GENERATION_DAILY_LIMIT: ${APPLICATION_GENERATION_DAILY_LIMIT:-10}
+      APPLICATION_GENERATION_TIMEOUT_SECONDS: ${APPLICATION_GENERATION_TIMEOUT_SECONDS:-45}
+      AUTOMATION_TIMEZONE: ${AUTOMATION_TIMEZONE:-Asia/Kolkata}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
       REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
+      AUTH_LOGIN_MAX_ATTEMPTS: ${AUTH_LOGIN_MAX_ATTEMPTS:-10}
+      AUTH_LOGIN_WINDOW_MINUTES: ${AUTH_LOGIN_WINDOW_MINUTES:-15}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     ports:
       - "8000:8000"
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
     volumes:
       - resume_data:/data/resumes
     depends_on:
@@ -45,6 +64,52 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  worker:
+    build:
+      context: ./backend
+      target: runtime
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-job_hunting}
+      POSTGRES_USER: ${POSTGRES_USER:-job_hunting}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: ${DATABASE_URL:-}
+      APP_ENV: ${APP_ENV:-development}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      MATCHING_AI_ENABLED: ${MATCHING_AI_ENABLED:-false}
+      MATCHING_TIMEOUT_SECONDS: ${MATCHING_TIMEOUT_SECONDS:-20}
+      MATCHING_WEIGHTS: ${MATCHING_WEIGHTS:-}
+      MATCHING_MAX_BATCH: ${MATCHING_MAX_BATCH:-50}
+      MATCHING_MAX_AI_CALLS: ${MATCHING_MAX_AI_CALLS:-8}
+      MATCHING_RATE_LIMIT_PER_MINUTE: ${MATCHING_RATE_LIMIT_PER_MINUTE:-10}
+      AUTOMATION_TIMEZONE: ${AUTOMATION_TIMEZONE:-Asia/Kolkata}
+      COLLECTION_TIMEOUT_SECONDS: ${COLLECTION_TIMEOUT_SECONDS:-300}
+      COLLECTION_RETRY_ATTEMPTS: ${COLLECTION_RETRY_ATTEMPTS:-3}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker_health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
 
   backend-test:
     profiles: ["verification"]
@@ -65,6 +130,16 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       RESUME_STORAGE_ROOT: /tmp/job-hunting-resumes-test
       MAX_RESUME_UPLOAD_BYTES: ${MAX_RESUME_UPLOAD_BYTES:-5242880}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      MATCHING_AI_ENABLED: ${MATCHING_AI_ENABLED:-false}
+      MATCHING_TIMEOUT_SECONDS: ${MATCHING_TIMEOUT_SECONDS:-20}
+      MATCHING_WEIGHTS: ${MATCHING_WEIGHTS:-}
+      MATCHING_MAX_BATCH: ${MATCHING_MAX_BATCH:-50}
+      MATCHING_MAX_AI_CALLS: ${MATCHING_MAX_AI_CALLS:-8}
+      MATCHING_RATE_LIMIT_PER_MINUTE: ${MATCHING_RATE_LIMIT_PER_MINUTE:-10}
+      APPLICATION_GENERATION_DAILY_LIMIT: ${APPLICATION_GENERATION_DAILY_LIMIT:-10}
+      APPLICATION_GENERATION_TIMEOUT_SECONDS: ${APPLICATION_GENERATION_TIMEOUT_SECONDS:-45}
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,6 +151,9 @@ services:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
     ports:
       - "5173:5173"
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
     depends_on:
       - backend
     healthcheck:

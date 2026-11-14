@@ -80,6 +80,10 @@ class CollectionRunResponse(BaseModel):
     jobs_created: int
     jobs_updated: int
     jobs_skipped: int
+    duration_seconds: float | None = None
+    retry_count: int = 0
+    matching_duration_seconds: float | None = None
+    matching_failed: bool = False
     error_message: str | None
     run_metadata: dict = Field(serialization_alias="metadata")
 
@@ -125,6 +129,22 @@ class JobImport(BaseModel):
     apply_url: str | None = Field(default=None, max_length=2048)
     work_mode: str | None = None
     employment_type: str | None = None
+    experience_min: int | None = Field(default=None, ge=0, le=720)
+    experience_max: int | None = Field(default=None, ge=0, le=720)
+    salary_min: Decimal | None = Field(default=None, ge=0)
+    salary_max: Decimal | None = Field(default=None, ge=0)
+    salary_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    salary_period: str | None = None
+    required_skills: list[str] = Field(default_factory=list, max_length=100)
+    preferred_skills: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_ranges(self):
+        if self.experience_min is not None and self.experience_max is not None and self.experience_min > self.experience_max:
+            raise ValueError("Minimum experience cannot exceed maximum experience")
+        if self.salary_min is not None and self.salary_max is not None and self.salary_min > self.salary_max:
+            raise ValueError("Minimum salary cannot exceed maximum salary")
+        return self
 
 
 class JobListResponse(BaseModel):

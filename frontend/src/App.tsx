@@ -1,5 +1,8 @@
 import ResumeManager from './ResumeManager'
 import JobWorkspace from './JobWorkspace'
+import JobMatches from './JobMatches'
+import ApplicationWorkflow from './ApplicationWorkflow'
+import Phase7Workspace from './Phase7Workspace'
 
 const stages = [
   ['Discover', 'Collect jobs from authorized sources'],
@@ -13,9 +16,12 @@ export default function App() {
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="#home"><span className="brand-mark">J</span> Job Hunting Agent</a>
-        <span className="phase">Job search workspace · Phase 4</span>
+        <span className="phase">Job search workspace · Phase 7</span>
       </header>
       <JobWorkspace />
+      <JobMatches />
+      <ApplicationWorkflow />
+      <Phase7Workspace />
       <ResumeManager />
       <section className="hero" id="home">
         <p className="eyebrow">YOUR SEARCH, WITH YOU IN CONTROL</p>

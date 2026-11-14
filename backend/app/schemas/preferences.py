@@ -14,6 +14,8 @@ class PreferencesUpdate(BaseModel):
     preferred_locations: list[str] = Field(default_factory=list, max_length=100)
     work_modes: list[str] = Field(default_factory=list, max_length=10)
     excluded_companies: list[str] = Field(default_factory=list, max_length=100)
+    excluded_roles: list[str] = Field(default_factory=list, max_length=100)
+    employment_types: list[str] = Field(default_factory=list, max_length=20)
     is_active: bool = True
 
     @model_validator(mode="after")

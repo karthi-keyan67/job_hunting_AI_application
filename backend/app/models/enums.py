@@ -26,9 +26,25 @@ class ApplicationStatus(str, enum.Enum):
 
 class ReviewStatus(str, enum.Enum):
     PENDING = "PENDING"
+    PENDING_REVIEW = "PENDING_REVIEW"
     APPROVED = "APPROVED"
+    APPROVED_FOR_PREPARATION = "APPROVED_FOR_PREPARATION"
     REJECTED = "REJECTED"
     SAVED = "SAVED"
+
+
+class DraftType(str, enum.Enum):
+    TAILORED_RESUME = "TAILORED_RESUME"
+    COVER_LETTER = "COVER_LETTER"
+    RECRUITER_MESSAGE = "RECRUITER_MESSAGE"
+    APPLICATION_ANSWERS = "APPLICATION_ANSWERS"
+
+
+class DraftStatus(str, enum.Enum):
+    GENERATED = "GENERATED"
+    EDITED = "EDITED"
+    APPROVED = "APPROVED"
+    SUPERSEDED = "SUPERSEDED"
 
 
 class ApprovalType(str, enum.Enum):
@@ -36,6 +52,18 @@ class ApprovalType(str, enum.Enum):
     COVER_LETTER = "COVER_LETTER"
     ANSWERS = "ANSWERS"
     FINAL = "FINAL"
+
+
+class InterviewStatus(str, enum.Enum):
+    SCHEDULED = "SCHEDULED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+
+class FollowUpStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
 
 
 class RunStatus(str, enum.Enum):

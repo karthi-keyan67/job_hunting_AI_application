@@ -191,12 +191,14 @@ class ResumeService:
 
     async def _is_referenced(self, version_id: UUID) -> bool:
         from app.models.applications import ApplicationDraft, ApplicationEvent, ApplicationAuditLog
+        from app.models.jobs import JobMatch
         from sqlalchemy import cast, String
         ref = str(version_id)
         for query in (
             select(ApplicationDraft.id).where(cast(ApplicationDraft.content, String).contains(ref)),
             select(ApplicationEvent.id).where(cast(ApplicationEvent.metadata_json, String).contains(ref)),
             select(ApplicationAuditLog.id).where(cast(ApplicationAuditLog.details, String).contains(ref)),
+            select(JobMatch.id).where(JobMatch.resume_version_id == version_id),
         ):
             if await self.session.scalar(query.limit(1)):
                 return True

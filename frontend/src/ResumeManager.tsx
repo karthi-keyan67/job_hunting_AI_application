@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 type Version = { id: string; version_number: number; original_filename: string; file_type: string; file_size: number; parsing_status: string; parsing_error: string | null; parsed_text: string | null; created_at: string }
 type Resume = { id: string; title: string; is_default: boolean; versions: Version[] }
@@ -17,13 +17,13 @@ export default function ResumeManager() {
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [register, setRegister] = useState(false)
   const [resumes, setResumes] = useState<Resume[]>([]); const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
-  async function reload(active = tokens) {
+  const reload = useCallback(async (active = tokens) => {
     if (!active) return
     const response = await request('/resumes', active.access_token)
     const items = await response!.json() as Resume[]; setResumes(items)
     setSelected(old => old && items.some(item => item.id === old) ? old : items[0]?.id ?? null)
-  }
-  useEffect(() => { if (tokens) void reload().catch(e => setError(e.message)) }, [tokens])
+  }, [tokens])
+  useEffect(() => { if (tokens) void reload().catch(e => setError(e.message)) }, [tokens, reload])
   async function authenticate(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('')
     try {

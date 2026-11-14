@@ -1,10 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import case, delete, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.account import JobPreference, RefreshToken, User, UserProfile
+from app.models.account import AuthLoginAttempt, JobPreference, RefreshToken, User, UserProfile
+from app.models.automation import AutomationSettings
 
 
 class AuthRepository:
@@ -21,6 +23,7 @@ class AuthRepository:
         user = User(email=email, password_hash=password_hash)
         user.profile = UserProfile(currency="INR")
         user.preferences = JobPreference()
+        user.automation_settings = AutomationSettings()
         self.session.add(user)
         await self.session.flush()
         return user
@@ -47,4 +50,26 @@ class AuthRepository:
             .where(RefreshToken.family_id == family_id, RefreshToken.revoked_at.is_(None))
             .values(revoked_at=datetime.now(timezone.utc))
         )
+
+    async def record_login_attempt(self, key_hash: str, window_started: datetime) -> int:
+        statement = insert(AuthLoginAttempt).values(key_hash=key_hash, window_started=window_started, attempts=1)
+        statement = statement.on_conflict_do_update(
+            index_elements=[AuthLoginAttempt.key_hash],
+            set_={
+                "attempts": case(
+                    (AuthLoginAttempt.window_started < window_started, 1),
+                    else_=AuthLoginAttempt.attempts + 1,
+                ),
+                "window_started": window_started,
+            },
+        ).returning(AuthLoginAttempt.attempts)
+        attempts = int(await self.session.scalar(statement))
+        stale_ids = select(AuthLoginAttempt.id).where(
+            AuthLoginAttempt.window_started < datetime.now(timezone.utc) - timedelta(days=2)
+        ).limit(100)
+        await self.session.execute(delete(AuthLoginAttempt).where(AuthLoginAttempt.id.in_(stale_ids)))
+        return attempts
+
+    async def clear_login_attempt(self, key_hash: str) -> None:
+        await self.session.execute(delete(AuthLoginAttempt).where(AuthLoginAttempt.key_hash == key_hash))
 

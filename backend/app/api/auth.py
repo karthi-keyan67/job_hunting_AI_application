@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Request, Response, status
 
 from app.api.dependencies import CurrentUser, SessionDep
 from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse, UserResponse
@@ -14,8 +14,9 @@ async def register(payload: RegisterRequest, session: SessionDep):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, session: SessionDep):
-    _, tokens = await AuthService(session).login(str(payload.email), payload.password)
+async def login(payload: LoginRequest, request: Request, session: SessionDep):
+    client_ip = request.client.host if request.client else None
+    _, tokens = await AuthService(session).login(str(payload.email), payload.password, client_ip)
     return tokens
 
 

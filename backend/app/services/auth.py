@@ -120,11 +120,25 @@ class AuthService:
         await self.session.refresh(user)
         return user, token_response
 
-    async def login(self, email: str, password: str) -> tuple[User, TokenResponse]:
-        user = await self.repository.get_user_by_email(email.strip().lower())
+    async def login(self, email: str, password: str, client_ip: str | None = None) -> tuple[User, TokenResponse]:
+        normalized_email = email.strip().lower()
+        user = await self.repository.get_user_by_email(normalized_email)
+        now = datetime.now(timezone.utc)
+        window_seconds = settings.auth_login_window_minutes * 60
+        window_started = datetime.fromtimestamp(int(now.timestamp()) // window_seconds * window_seconds, timezone.utc)
+        fingerprint = hashlib.sha256(
+            f"{settings.jwt_secret}\0{client_ip or 'unknown'}\0{normalized_email}".encode("utf-8")
+        ).hexdigest()
+        attempts = await self.repository.record_login_attempt(fingerprint, window_started)
+        if attempts > settings.auth_login_max_attempts:
+            await self.session.commit()
+            retry_after = max(1, int((window_started + timedelta(seconds=window_seconds) - now).total_seconds()))
+            raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.", headers={"Retry-After": str(retry_after)})
         valid = password_hasher.verify(password, user.password_hash if user else _dummy_password_hash)
         if user is None or not valid or not user.is_active:
+            await self.session.commit()
             raise HTTPException(status_code=401, detail="Incorrect email or password", headers={"WWW-Authenticate": "Bearer"})
+        await self.repository.clear_login_attempt(fingerprint)
         token_response, digest, expires, family = _tokens_for_user(user)
         await self.repository.add_refresh_token(user.id, digest, family, expires)
         await self.session.commit()

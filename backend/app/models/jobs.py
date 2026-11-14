@@ -1,10 +1,10 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
-from app.models.base import Base, Timestamped, UUIDPrimaryKey, json_object_type
+from app.models.base import Base, Timestamped, UUIDPrimaryKey, json_array_type, json_object_type
 from app.models.enums import JobSourceStatus, ReviewStatus, RunStatus
 
 
@@ -94,14 +94,40 @@ class JobSkill(UUIDPrimaryKey, Timestamped, Base):
 class JobMatch(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "job_matches"
     __table_args__ = (
-        UniqueConstraint("user_id", "job_id", name="uq_job_matches_user_job"),
+        UniqueConstraint("user_id", "job_id", "input_fingerprint", name="uq_job_matches_input_fingerprint"),
         Index("ix_job_matches_score", "score"),
+        Index("ix_job_matches_user_id", "user_id"),
+        Index("ix_job_matches_job_id", "job_id"),
+        Index("ix_job_matches_overall_score", "overall_score"),
+        Index("ix_job_matches_eligibility_status", "eligibility_status"),
         CheckConstraint("score >= 0 AND score <= 100", name="score_range"),
+        CheckConstraint("overall_score >= 0 AND overall_score <= 100", name="overall_score_range"),
+        CheckConstraint("confidence >= 0 AND confidence <= 100", name="confidence_range"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     score: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    overall_score: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    confidence: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    eligibility_status: Mapped[str] = mapped_column(String(20), nullable=False, default="UNKNOWN")
+    skills_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    experience_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    role_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    location_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    salary_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    resume_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("resume_versions.id", ondelete="RESTRICT"))
+    input_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    ai_analysis: Mapped[dict] = mapped_column(json_object_type(), default=dict, nullable=False)
+    matched_skills: Mapped[list] = mapped_column(json_array_type(), default=list, nullable=False)
+    missing_required_skills: Mapped[list] = mapped_column(json_array_type(), default=list, nullable=False)
+    missing_preferred_skills: Mapped[list] = mapped_column(json_array_type(), default=list, nullable=False)
+    strengths: Mapped[list] = mapped_column(json_array_type(), default=list, nullable=False)
+    concerns: Mapped[list] = mapped_column(json_array_type(), default=list, nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    model_name: Mapped[str | None] = mapped_column(String(120))
+    prompt_version: Mapped[str] = mapped_column(String(40), default="phase5-v1", nullable=False)
+    scoring_version: Mapped[str] = mapped_column(String(40), default="deterministic-v1", nullable=False)
     details: Mapped[dict] = mapped_column(json_object_type(), default=dict, nullable=False)
     user: Mapped["User"] = relationship(back_populates="matches")
     job: Mapped[Job] = relationship(back_populates="matches")
@@ -109,14 +135,30 @@ class JobMatch(UUIDPrimaryKey, Timestamped, Base):
 
 class JobReview(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "job_reviews"
-    __table_args__ = (UniqueConstraint("user_id", "job_id", name="uq_job_reviews_user_job"),)
+    __table_args__ = (UniqueConstraint("user_id", "job_id", name="uq_job_reviews_user_job"), Index("ix_job_reviews_user_status", "user_id", "status"))
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[ReviewStatus] = mapped_column(Enum(ReviewStatus, name="job_review_status"), default=ReviewStatus.PENDING, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    match_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("job_matches.id", ondelete="SET NULL"))
     user: Mapped["User"] = relationship(back_populates="job_reviews")
     job: Mapped[Job] = relationship(back_populates="reviews")
+    history: Mapped[list["JobReviewEvent"]] = relationship(back_populates="review", cascade="all, delete-orphan", order_by="JobReviewEvent.created_at")
+    audit_events: Mapped[list["ApplicationAuditLog"]] = relationship(back_populates="job_review")
+
+
+class JobReviewEvent(UUIDPrimaryKey, Base):
+    __tablename__ = "job_review_events"
+    __table_args__ = (Index("ix_job_review_events_review_created", "job_review_id", "created_at"),)
+
+    job_review_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("job_reviews.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    review: Mapped[JobReview] = relationship(back_populates="history")
 
 
 class CollectionRun(UUIDPrimaryKey, Timestamped, Base):
@@ -138,6 +180,10 @@ class CollectionRun(UUIDPrimaryKey, Timestamped, Base):
     jobs_created: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
     jobs_updated: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
     jobs_skipped: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
+    duration_seconds: Mapped[float | None] = mapped_column()
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    matching_duration_seconds: Mapped[float | None] = mapped_column()
+    matching_failed: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
     error_summary: Mapped[str | None] = mapped_column(Text)
     source: Mapped[JobSource] = relationship(back_populates="collection_runs")
@@ -154,3 +200,16 @@ class JobDuplicate(UUIDPrimaryKey, Timestamped, Base):
     job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     duplicate_job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     match_reason: Mapped[dict] = mapped_column(json_object_type(), default=dict, nullable=False)
+
+
+class MatchingRequestLimit(UUIDPrimaryKey, Base):
+    __tablename__ = "matching_request_limits"
+    __table_args__ = (
+        UniqueConstraint("user_id", "window_started_at", name="uq_matching_request_limits_user_window"),
+        CheckConstraint("request_count > 0", name="request_count_positive"),
+        Index("ix_matching_request_limits_window_started_at", "window_started_at"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False)

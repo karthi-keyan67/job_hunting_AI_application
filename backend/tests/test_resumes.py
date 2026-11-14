@@ -42,6 +42,7 @@ async def test_resume_upload_parse_download_versions_default_and_delete(client):
     assert first["version_number"] == 1
     assert first["parsing_status"] == "COMPLETED"
     assert first["parsed_data"]["name"] == "Jordan Example"
+    assert first["parsed_data"]["job_titles"] == ["Backend Engineer"]
     assert "jordan@example.com" in first["parsed_data"]["emails"]
     assert first["parsed_data"]["skills"]
 

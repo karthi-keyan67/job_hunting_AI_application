@@ -1,7 +1,8 @@
 import pytest
 from sqlalchemy import select
 
-from app.models import JobPreference, User, UserProfile
+from app.models import AuthLoginAttempt, JobPreference, User, UserProfile
+from app.core.config import Settings
 from app.services.auth import password_hasher
 
 
@@ -36,6 +37,30 @@ async def test_login_success_and_failure(client):
     assert success.status_code == 200
     assert success.json()["token_type"] == "bearer"
     assert failure.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_login_attempts_are_rate_limited_without_storing_email_or_ip(client, db_session, monkeypatch):
+    monkeypatch.setattr("app.services.auth.settings.auth_login_max_attempts", 2)
+    registration = await register(client, "throttle@example.com")
+    assert registration.status_code == 201
+    for _ in range(2):
+        failed = await client.post("/api/v1/auth/login", json={"email": "throttle@example.com", "password": "incorrect-password"})
+        assert failed.status_code == 401
+    limited = await client.post("/api/v1/auth/login", json={"email": "throttle@example.com", "password": "incorrect-password"})
+    assert limited.status_code == 429
+    record = await db_session.scalar(select(AuthLoginAttempt))
+    assert record is not None and len(record.key_hash) == 64 and record.attempts == 3
+    assert "throttle@example.com" not in record.key_hash and "127.0.0.1" not in record.key_hash
+
+
+def test_production_configuration_rejects_development_secret_and_http_origins():
+    with pytest.raises(ValueError):
+        Settings(app_env="production", jwt_secret="replace-this-development-secret-before-deploying", postgres_password="strong-password", cors_origins="https://app.example.com")
+    with pytest.raises(ValueError):
+        Settings(app_env="production", jwt_secret="a" * 64, postgres_password="strong-password", cors_origins="http://localhost:5173")
+    production = Settings(app_env="production", jwt_secret="a" * 64, postgres_password="strong-password", cors_origins="https://app.example.com")
+    assert production.app_env == "production"
 
 
 @pytest.mark.asyncio
