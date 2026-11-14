@@ -1,0 +1,25 @@
+:root { font-family: 'Segoe UI', Arial, sans-serif; color: #17211e; background: #f6f7f4; font-synthesis: none; text-rendering: optimizeLegibility; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+.shell { max-width: 1160px; min-height: 100vh; margin: 0 auto; padding: 0 48px; display: flex; flex-direction: column; }
+.topbar { height: 88px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e5e9e3; }
+.brand { display: inline-flex; align-items: center; gap: 11px; color: inherit; text-decoration: none; font-weight: 700; letter-spacing: -.03em; }
+.brand-mark { display: grid; place-items: center; width: 32px; height: 32px; color: #fff; background: #16624a; border-radius: 10px; font-weight: 700; }
+.phase { color: #738078; font-size: 13px; }
+.hero { padding: 94px 0 76px; max-width: 720px; }
+.eyebrow { margin: 0 0 20px; color: #267254; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+h1 { margin: 0; font: 700 clamp(42px, 6vw, 68px)/1.08 'Segoe UI', Arial, sans-serif; letter-spacing: -.06em; }
+.intro { max-width: 570px; margin: 24px 0 30px; color: #64716a; font-size: 17px; line-height: 1.7; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+button { padding: 13px 18px; border: 0; border-radius: 8px; color: #fff; background: #16624a; font: 600 14px 'DM Sans', sans-serif; }
+button:disabled { opacity: .75; cursor: not-allowed; }
+.actions span { color: #78847d; font-size: 13px; }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 28px 0 46px; border-top: 1px solid #e1e6e0; }
+.step { min-height: 145px; padding: 18px; background: #fff; border: 1px solid #e9ede8; border-radius: 12px; }
+.step-number { color: #26805b; font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+.step h2 { margin: 13px 0 6px; font: 700 17px 'Segoe UI', Arial, sans-serif; letter-spacing: -.03em; }
+.step p { margin: 0; color: #748078; font-size: 13px; line-height: 1.5; }
+footer { display: flex; justify-content: space-between; gap: 16px; margin-top: auto; padding: 24px 0; color: #849087; border-top: 1px solid #e5e9e3; font-size: 12px; }
+code { color: #315c49; }
+@media (max-width: 720px) { .shell { padding: 0 22px; } .hero { padding: 70px 0 54px; } .steps { grid-template-columns: repeat(2, 1fr); } footer { flex-direction: column; } }
+@media (max-width: 420px) { .phase { font-size: 11px; } .steps { grid-template-columns: 1fr; } }
