@@ -11,5 +11,8 @@ node_modules/
 dist/
 coverage/
 uploads/
+backend/var/private/
 *.log
+*.db
+*.db-*
 .DS_Store
