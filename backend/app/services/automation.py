@@ -11,7 +11,6 @@ from sqlalchemy.dialects.postgresql import insert
 from app.core.config import get_settings
 from app.core.database import SessionFactory
 from app.models.account import JobPreference
-from app.models.applications import Notification
 from app.models.automation import AutomationExecution, AutomationSettings, WorkerHeartbeat
 from app.models.enums import RunStatus
 from app.models.jobs import CollectionRun, Job, JobSource

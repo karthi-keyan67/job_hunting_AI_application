@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.models.account import ResumeVersion
 from app.models.applications import Application, ApplicationAuditLog, ApplicationEvent
 from app.models.enums import ApplicationStatus, FollowUpStatus, InterviewStatus, ReviewStatus
-from app.models.jobs import Job, JobMatch, JobReview, JobReviewEvent, JobSkill, JobSource
+from app.models.jobs import Job, JobMatch, JobReview, JobReviewEvent, JobSource
 from app.models.tracking import FollowUp, Interview
 
 
@@ -153,7 +153,8 @@ class DashboardRepository:
         offer_query = select(func.count(distinct(Application.id))).outerjoin(ApplicationAuditLog, ApplicationAuditLog.application_id == Application.id).where(*submitted_filter, offer_events)
         interviews = await self.session.scalar(interview_query) or 0
         offers = await self.session.scalar(offer_query) or 0
-        conv = lambda numerator: {"numerator": numerator, "denominator": applied, "percentage": round(numerator * 100 / applied, 1) if applied >= 5 else None, "sample_size_sufficient": applied >= 5}
+        def conv(numerator: int) -> dict[str, int | float | bool | None]:
+            return {"numerator": numerator, "denominator": applied, "percentage": round(numerator * 100 / applied, 1) if applied >= 5 else None, "sample_size_sufficient": applied >= 5}
 
         job_query = select(func.date_trunc("month", Job.first_seen_at).label("month"), func.count(distinct(Job.id))).join(JobSource).where(JobSource.user_id == user_id)
         if start:

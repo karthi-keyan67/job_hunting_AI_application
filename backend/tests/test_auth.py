@@ -56,11 +56,20 @@ async def test_login_attempts_are_rate_limited_without_storing_email_or_ip(clien
 
 def test_production_configuration_rejects_development_secret_and_http_origins():
     with pytest.raises(ValueError):
-        Settings(app_env="production", jwt_secret="replace-this-development-secret-before-deploying", postgres_password="strong-password", cors_origins="https://app.example.com")
+        Settings(app_env="production", database_url=None, jwt_secret="replace-this-development-secret-before-deploying", postgres_password="a-strong-production-database-password", cors_origins="https://app.example.com")
     with pytest.raises(ValueError):
-        Settings(app_env="production", jwt_secret="a" * 64, postgres_password="strong-password", cors_origins="http://localhost:5173")
-    production = Settings(app_env="production", jwt_secret="a" * 64, postgres_password="strong-password", cors_origins="https://app.example.com")
+        Settings(app_env="production", database_url=None, jwt_secret="a" * 64, postgres_password="a-strong-production-database-password", cors_origins="http://localhost:5173")
+    with pytest.raises(ValueError):
+        Settings(app_env="production", database_url=None, jwt_secret="a" * 64, postgres_password="short-password", cors_origins="https://app.example.com")
+    production = Settings(app_env="production", database_url=None, jwt_secret="a" * 64, postgres_password="a-strong-production-database-password", cors_origins="https://app.example.com")
     assert production.app_env == "production"
+
+
+def test_secret_file_configuration(tmp_path):
+    jwt_secret_file = tmp_path / "jwt-secret"
+    jwt_secret_file.write_text("s" * 64, encoding="utf-8")
+    settings = Settings(_env_file=None, jwt_secret="", jwt_secret_file=jwt_secret_file)
+    assert settings.jwt_secret == "s" * 64
 
 
 @pytest.mark.asyncio

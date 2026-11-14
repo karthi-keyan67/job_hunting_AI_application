@@ -6,11 +6,9 @@ from sqlalchemy import select
 
 from app.connectors.career_page import CareerPageConnector
 from app.connectors.gmail_alerts import GmailJobAlertConnector
-from app.connectors.registry import integration_status
 from app.connectors.security import validate_public_url
 from app.models.enums import JobSourceStatus, RunStatus
 from app.models.jobs import CollectionRun, Job, JobDuplicate, JobSource
-from app.schemas.jobs import JobImport
 from app.services.job_normalization import normalize_job
 from app.services.jobs import JobService
 
@@ -228,7 +226,7 @@ async def test_collection_worker_upserts_idempotently_and_records_counts(db_sess
     db_session.add(source_row)
     await db_session.commit()
     connector = FixtureConnector(source_row)
-    monkeypatch.setattr("app.services.jobs.connector_for", lambda _source: connector)
+    monkeypatch.setattr("app.services.jobs.connector_for", lambda _source, *_args: connector)
     service = JobService(db_session)
     first = await service.collect_source(source_row.id, user.id)
     assert first.status == RunStatus.SUCCEEDED and first.jobs_created == 1 and first.jobs_found == 1
@@ -252,12 +250,25 @@ async def test_collection_failure_is_recorded_without_throwing(client, monkeypat
         @staticmethod
         def handle_errors(_exc):
             return "Authorized fixture connector failed"
-    monkeypatch.setattr("app.services.jobs.connector_for", lambda value: FailedConnector(value))
+    monkeypatch.setattr("app.services.jobs.connector_for", lambda value, *_args: FailedConnector(value))
     signup = await client.post("/api/v1/auth/register", json={"email": "collector-fail@example.com", "password": "correct-horse-battery-1"})
     headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
-    response = await client.post("/api/v1/sources", headers=headers, json={"name": "Gmail alerts", "source_type": "GMAIL_ALERT", "is_enabled": True})
+    response = await client.post("/api/v1/sources", headers=headers, json={"name": "Gmail alerts", "source_type": "GMAIL_ALERT", "configuration": {"allowed_senders": ["careers@example.org"]}, "is_enabled": True})
     source_id = response.json()["id"]
     run = await client.post(f"/api/v1/sources/{source_id}/collect", headers=headers)
     assert run.status_code == 200, run.text
     assert run.json()["status"] == "FAILED"
     assert "awaiting" not in (run.json()["error_message"] or "").lower()  # safe connector errors do not expose credentials
+
+
+@pytest.mark.asyncio
+async def test_gmail_source_requires_and_normalizes_sender_allowlist(client):
+    signup = await client.post("/api/v1/auth/register", json={"email": "gmail-source@example.com", "password": "correct-horse-battery-1"})
+    headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
+    invalid = await client.post("/api/v1/sources", headers=headers, json={"name": "Gmail", "source_type": "GMAIL_ALERT"})
+    assert invalid.status_code == 422
+    created = await client.post("/api/v1/sources", headers=headers, json={
+        "name": "Gmail", "source_type": "GMAIL_ALERT", "configuration": {"allowed_senders": ["Careers@Example.org"]},
+    })
+    assert created.status_code == 201
+    assert created.json()["configuration"]["allowed_senders"] == ["careers@example.org"]

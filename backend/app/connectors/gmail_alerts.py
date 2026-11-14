@@ -1,26 +1,82 @@
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr
+import base64
 from html import unescape
 import re
 
+import httpx
+
 from bs4 import BeautifulSoup
 
-from app.connectors.base import ConnectorNotConfigured, JobConnector
+from app.connectors.base import ConnectorError, ConnectorNotConfigured, JobConnector
 
 
 class GmailJobAlertConnector(JobConnector):
-    """Parser and future authorized Gmail adapter; no OAuth client is configured in this phase."""
+    """Read-only Gmail alert connector with a per-user OAuth connection."""
+
+    def __init__(self, source, session=None):
+        super().__init__(source)
+        self.session = session
+        self.allowed_senders = self.source.configuration.get("allowed_senders", [])
+
+    @staticmethod
+    def normalize_sender_allowlist(value) -> list[str]:
+        if not isinstance(value, list) or not value or len(value) > 50:
+            raise ConnectorNotConfigured("Configure an allowlist of Gmail alert sender addresses")
+        if any(not isinstance(sender, str) or not re.fullmatch(r"[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+", sender.strip()) for sender in value):
+            raise ConnectorNotConfigured("Gmail sender allowlist contains an invalid address")
+        return sorted({sender.strip().casefold() for sender in value})
 
     def validate_configuration(self) -> None:
-        # A connection identifier is metadata only. Tokens are supplied by a future secret store.
-        if not self.source.configuration.get("authorized_connection_id"):
-            raise ConnectorNotConfigured("Gmail OAuth authorization is not configured")
-        raise ConnectorNotConfigured("Gmail OAuth provider is not installed; live collection is awaiting credentials")
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        if not self.session or not self.source.user_id:
+            raise ConnectorNotConfigured("Gmail collection requires an owned user source")
+        if not (settings.google_oauth_client_id and settings.google_oauth_client_secret and settings.google_oauth_redirect_uri and settings.oauth_token_encryption_key):
+            raise ConnectorNotConfigured("Gmail OAuth credentials are not configured")
+        self.allowed_senders = self.normalize_sender_allowlist(self.allowed_senders)
+        terms = self.source.configuration.get("required_terms", [])
+        if not isinstance(terms, list) or len(terms) > 50 or any(not isinstance(term, str) or not term.strip() or len(term) > 100 for term in terms):
+            raise ConnectorNotConfigured("Gmail required terms must be a short list of text values")
 
     async def fetch_jobs(self) -> list[dict]:
         self.validate_configuration()
-        return []
+        from app.services.google_oauth import GoogleOAuthService
+
+        token = await GoogleOAuthService(self.session).access_token(self.source.user_id)
+        if not token:
+            raise ConnectorNotConfigured("Connect Gmail using the authorized OAuth flow before collection")
+        senders = sorted({sender.casefold() for sender in self.allowed_senders})
+        query = "{" + " ".join(f"from:{sender}" for sender in senders) + "} newer_than:30d"
+        headers = {"Authorization": f"Bearer {token}"}
+        api = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+                listing = await client.get(api, headers=headers, params={"q": query, "maxResults": 50})
+                if listing.status_code == 401:
+                    raise ConnectorNotConfigured("Gmail access was revoked or expired; reconnect the account")
+                if listing.status_code != 200:
+                    raise ConnectorError("Gmail message listing failed")
+                message_ids = [row["id"] for row in listing.json().get("messages", []) if isinstance(row, dict) and isinstance(row.get("id"), str)]
+                results = []
+                required_terms = self.source.configuration.get("required_terms", [])
+                for message_id in message_ids[:50]:
+                    response = await client.get(f"{api}/{message_id}", headers=headers, params={"format": "raw"})
+                    if response.status_code != 200:
+                        continue
+                    encoded = response.json().get("raw")
+                    if not isinstance(encoded, str):
+                        continue
+                    try:
+                        raw_message = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+                    except (ValueError, base64.binascii.Error):
+                        continue
+                    results.extend(self.parse_message(raw_message, self.allowed_senders, required_terms))
+                return results
+        except httpx.HTTPError as exc:
+            raise ConnectorError("Gmail API request failed") from exc
 
     @staticmethod
     def parse_message(raw_message: bytes, allowed_senders: list[str] | None = None, required_terms: list[str] | None = None) -> list[dict]:

@@ -13,6 +13,7 @@ from app.models.enums import ApplicationStatus, ApprovalType, DraftStatus, Draft
 from app.models.jobs import CollectionRun, Job, JobDuplicate, JobMatch, JobReview, JobReviewEvent, JobSkill, JobSource, MatchingRequestLimit
 from app.models.tracking import FollowUp, Interview
 from app.models.automation import AutomationExecution, AutomationSettings, WorkerHeartbeat
+from app.models.integrations import GoogleOAuthConnection, GoogleOAuthState
 
 __all__ = [
     "Base", "User", "UserProfile", "JobPreference", "Resume", "ResumeVersion", "ResumeParsingStatus", "RefreshToken", "JobSource", "Job",
@@ -22,4 +23,5 @@ __all__ = [
     "Interview", "FollowUp", "InterviewStatus", "FollowUpStatus",
     "AutomationSettings", "AutomationExecution", "WorkerHeartbeat",
     "AuthLoginAttempt",
+    "GoogleOAuthState", "GoogleOAuthConnection",
 ]

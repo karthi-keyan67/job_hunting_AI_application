@@ -13,6 +13,7 @@ Base URL: `/api/v1`. JSON error responses use FastAPI's `{"detail": ...}` struct
 - `POST /auth/refresh` — JSON `{ "refresh_token" }`; rotates token, invalidates the previous token, returns a new pair.
 - `POST /auth/logout` — authenticated bearer access token plus JSON `{ "refresh_token" }`; revokes that token family and returns 204.
 - `GET /auth/me` — authenticated; returns `{id, email, is_active}`.
+- `GET /integrations/gmail/status`, `POST /integrations/gmail/authorize`, `GET /integrations/gmail/callback`, and `DELETE /integrations/gmail/connection` — connect/revoke the owner's Gmail OAuth connection. The callback is bound to a hashed, expiring one-use state; only `gmail.readonly` is requested. Tokens are encrypted at rest and never returned to the browser. These endpoints fail closed until Google client credentials, HTTPS callback URI, and an encryption key are configured.
 
 Duplicate registration returns 409. Invalid, expired, replayed, or revoked tokens return 401. Email and body validation errors return 422.
 

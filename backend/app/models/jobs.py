@@ -1,11 +1,16 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.models.base import Base, Timestamped, UUIDPrimaryKey, json_array_type, json_object_type
 from app.models.enums import JobSourceStatus, ReviewStatus, RunStatus
+
+if TYPE_CHECKING:
+    from app.models.account import User
+    from app.models.applications import Application, ApplicationAuditLog
 
 
 class JobSource(UUIDPrimaryKey, Timestamped, Base):

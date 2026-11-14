@@ -1,12 +1,13 @@
-# Known limitations
+# Known limitations and deployment blockers
 
-- The current Docker Compose configuration is for local development/verification. Vite dev server, directly exposed host ports, and missing TLS/reverse proxy mean it is not ready for public deployment.
-- The backend and worker still run as root to retain compatibility with the existing resume data volume. Compose drops capabilities and disables privilege escalation; a fixed non-root runtime UID remains a deployment task.
-- The frontend stores access and refresh token response data in `sessionStorage`, and current UI flows do not automatically refresh access tokens. API sessions can expire and require signing in again. A cookie/BFF approach and CSP are recommended before external exposure.
-- Frontend lint reports 38 explicit `any` warnings across existing Phase 6–8 UI and tests. Lint has no errors; warnings remain technical debt.
-- `npm audit --omit=dev` reports no production dependency vulnerabilities. Full `npm audit` reports 7 moderate findings in the development-only TypeScript ESLint/minimatch dependency chain; the compatible audit fix did not resolve them, and npm's suggested forced change is potentially breaking.
-- Ruff's first full backend app/test run reports 44 findings: model forward-reference strings flagged as undefined, unused imports, and a small number of formatting/style findings. Backend tests pass; clean up or configure a repository-wide lint baseline before treating Ruff as a CI gate.
-- Access tokens are not individually revoked at logout; they expire according to `ACCESS_TOKEN_MINUTES`. Logout revokes the refresh-token family.
-- Production settings validate secrets, CORS, and paired SMTP credentials, but this does not replace secret management, TLS, firewall rules, backups, monitoring, penetration testing, or deployment review.
-- SMTP, OpenAI, Gmail OAuth, and live external job connectors require user/provider configuration. They were not validated against live external services in Phase 9.
-- OCR for scanned resumes, automated application submission, and unsupported/private job-board scraping remain out of scope by design.
+- The production Compose profile is built and locally validated, but was not started as a stack or exposed publicly. Its host proxy bindings default to `127.0.0.1`; change network binding only after domain, firewall, TLS, and deployment review.
+- Caddy obtained an internal localhost certificate for the test handshake. A public domain and ACME certificate were not configured or tested.
+- Server-side Gmail OAuth authorization, encrypted credential storage, refresh/revocation, and the read-only Gmail API connector are implemented. No OAuth client ID/secret exists in the project environment, so live provider authorization and message retrieval remain unverified; Gmail remains fail-closed until configured.
+- OpenAI credentials are absent. Deterministic matching and provider behavior under mocked success/failure are tested, but no live provider request was made.
+- SMTP host, username/password, and sender are absent. Outbox retry, deduplication, bounded attempts, quiet hours, and delivery handling were tested with a mock; no email was sent.
+- No live authorized public career-page source was provided. The public career-page connector is implemented; provider-specific terms, rate limits, and live source health remain account/configuration-dependent. LinkedIn and other portal connectors remain unsupported without authorized APIs/feeds. Manual import does not fetch a listing.
+- Access and refresh token response data remains in `sessionStorage`; the UI does not transparently refresh expired access tokens. No cookie migration was attempted, so there is no cookie/CSRF flow to claim as verified. Keep deployment private until a complete session design is adopted.
+- Frontend ESLint succeeds with 38 `@typescript-eslint/no-explicit-any` warnings in existing workflow components/tests. Ruff passes across backend app and tests. `npm audit` and Python `pip-audit` found no known vulnerabilities in the checked dependency sets.
+- Backup/restore was exercised using `pg_dump`/`pg_restore` into a newly created disposable database. The existing project DB was empty in the representative user/job/application tables; exact table counts and Alembic head matched after restore. The temporary mode-restricted backup file was removed. This does not validate long-term encrypted off-host retention, resume-volume backup, or point-in-time recovery.
+- Development Compose still runs backend and worker as root and exposes development ports. The separate production target is non-root and has a private database network, but uses a fresh resume volume and has not migrated existing resume files.
+- No actual application was submitted. Submission remains a manual user action; no CAPTCHA, login restriction, or anti-bot control was bypassed.

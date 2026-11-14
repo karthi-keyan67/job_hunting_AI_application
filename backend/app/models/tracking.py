@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, Timestamped, UUIDPrimaryKey
 from app.models.enums import FollowUpStatus, InterviewStatus
+
+if TYPE_CHECKING:
+    from app.models.applications import Application
 
 
 class Interview(UUIDPrimaryKey, Timestamped, Base):

@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.models.account import ResumeVersion
-from app.models.applications import Application, ApplicationAuditLog, ApplicationDraft, ApplicationChecklist
+from app.models.applications import Application, ApplicationAuditLog, ApplicationDraft
 from app.models.enums import DraftType
 from app.models.jobs import Job, JobMatch, JobReview, JobReviewEvent, JobSource
 

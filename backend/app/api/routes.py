@@ -11,6 +11,7 @@ from app.api.applications import applications_router, reviews_router
 from app.api.dependencies import SessionDep
 from app.api.phase7 import dashboard_router, analytics_router, interviews_router, follow_ups_router, application_detail_router
 from app.api.automation import automation_router, notifications_router, monitoring_router
+from app.api.google_oauth import router as google_oauth_router
 
 router = APIRouter()
 router.include_router(auth_router)
@@ -30,6 +31,7 @@ router.include_router(application_detail_router)
 router.include_router(automation_router)
 router.include_router(notifications_router)
 router.include_router(monitoring_router)
+router.include_router(google_oauth_router)
 
 
 @router.get("/health", tags=["health"])

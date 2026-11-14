@@ -1,7 +1,6 @@
 import hashlib
 import re
 from urllib.parse import urlsplit, urlunsplit
-from uuid import UUID
 
 from app.models.jobs import JobSource
 from app.schemas.jobs import NormalizedJob

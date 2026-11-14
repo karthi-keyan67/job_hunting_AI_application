@@ -3,7 +3,6 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
-from app.models.enums import ApplicationStatus
 from app.repositories.dashboard import DashboardRepository
 from app.services.applications import application_view
 

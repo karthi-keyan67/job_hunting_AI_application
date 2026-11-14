@@ -5,10 +5,9 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
-from app.models.applications import Application, ApplicationApproval, ApplicationAuditLog, ApplicationChecklist, ApplicationDraft
+from app.models.applications import Application, ApplicationApproval, ApplicationChecklist, ApplicationDraft
 from app.models.enums import ApplicationStatus, ApprovalType, DraftStatus, DraftType, ReviewStatus
 from app.models.jobs import JobMatch, JobReview
 from app.repositories.applications import ApplicationRepository

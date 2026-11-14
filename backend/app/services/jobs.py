@@ -1,7 +1,6 @@
 import logging
 import hashlib
 import json
-import uuid
 from datetime import UTC, datetime
 from datetime import timedelta
 from uuid import UUID
@@ -13,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.connectors.base import ConnectorError, ConnectorNotConfigured
+from app.connectors.gmail_alerts import GmailJobAlertConnector
 from app.connectors.registry import PORTALS, connector_for, integration_status
 from app.connectors.security import validate_public_url
 from app.models.account import User
@@ -110,6 +110,11 @@ class JobService:
                 raise HTTPException(status_code=422, detail="A public career page URL is required")
             validate_source_url(payload.base_url)
         config = safe_source_config(payload.configuration)
+        if source_type == "GMAIL_ALERT":
+            try:
+                config["allowed_senders"] = GmailJobAlertConnector.normalize_sender_allowlist(config.get("allowed_senders"))
+            except ConnectorNotConfigured as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         source = JobSource(
             user_id=user_id, name=payload.name.strip(), source_type=source_type, connector_type=source_type,
             base_url=payload.base_url, configuration=config,
@@ -140,6 +145,11 @@ class JobService:
             validate_source_url(values["base_url"])
         if "configuration" in values and values["configuration"] is not None:
             values["configuration"] = safe_source_config(values["configuration"])
+            if source.source_type == "GMAIL_ALERT":
+                try:
+                    values["configuration"]["allowed_senders"] = GmailJobAlertConnector.normalize_sender_allowlist(values["configuration"].get("allowed_senders"))
+                except ConnectorNotConfigured as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
         for key, value in values.items():
             setattr(source, key, value)
         if "is_enabled" in values:
@@ -164,7 +174,7 @@ class JobService:
 
     async def test_source(self, source_id: UUID, user_id: UUID) -> dict:
         source = await self.get_source(source_id, user_id)
-        connector = connector_for(source)
+        connector = connector_for(source, self.session)
         try:
             connector.validate_configuration()
             jobs = await connector.fetch_jobs()
@@ -216,7 +226,7 @@ class JobService:
             raise HTTPException(status_code=404, detail="Job source not found")
         if not source.is_enabled:
             raise HTTPException(status_code=409, detail="Enable this source before collecting jobs")
-        connector = connector_for(source)
+        connector = connector_for(source, self.session)
         try:
             connector.validate_configuration()
         except ConnectorNotConfigured as exc:
@@ -278,7 +288,7 @@ class JobService:
             run.status = RunStatus.FAILED
             run.completed_at = datetime.now(UTC)
             run.finished_at = run.completed_at
-            run.error_message = connector_for(source).handle_errors(exc) if source else "Collection failed"
+            run.error_message = connector_for(source, self.session).handle_errors(exc) if source else "Collection failed"
             run.error_summary = run.error_message
             source.last_failure_at = run.completed_at
             source.status = JobSourceStatus.DEGRADED

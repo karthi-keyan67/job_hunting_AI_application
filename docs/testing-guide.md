@@ -1,48 +1,53 @@
 # Testing and verification guide
 
-## Backend PostgreSQL tests
+## Backend PostgreSQL suite
 
-Use a dedicated PostgreSQL test database, never the application database. Configure `TEST_DATABASE_URL` (asyncpg URL), or use `VERIFY_DATABASE_NAME` with the project PostgreSQL credentials. The pytest fixture applies Alembic to head and cleans test-owned rows; the database/schema itself is retained.
-
-```powershell
-cd backend
-python -m pip install -r requirements-dev.txt
-$env:TEST_DATABASE_URL = 'postgresql+asyncpg://USER:PASSWORD@HOST:5433/DEDICATED_TEST_DB'
-python -m pytest -q --cov=app --cov-report=term-missing
-```
-
-In the existing Docker Compose project:
+Use a dedicated test database, never the application DB. `TEST_DATABASE_URL` may point at a dedicated DB, or the Compose verification profile uses `VERIFY_DATABASE_NAME`. Tests run Alembic to head and clean test-owned rows but retain the database/schema.
 
 ```powershell
 docker compose -p job-hunting-agent-p2verify --env-file .env --profile verification run --rm backend-test
 ```
 
-The verification profile uses the configured verification database and does not reset or drop it. Do not point it at a database with user data.
+The Python suite covers registration/authentication, refresh rotation/revocation, profile/preferences, resume and job workflows, matching/application preparation, dashboard and automation APIs, ownership, PostgreSQL constraints, notification outbox behavior, quiet hours, retries, and scheduler advisory-lock/timeout/recovery paths.
 
-## Frontend checks
+## Frontend and static checks
 
 ```powershell
 cd frontend
 npm ci
-npm test
-npm run lint
-npm run build
+npm audit
 npm audit --omit=dev
+npm run lint
+npm test
+npm run build
 ```
 
-The current lint policy treats errors as failures and reports remaining explicit `any` usages as warnings.
-
-## Migration checks
+ESLint currently exits successfully with 38 explicit-`any` warnings. For backend static checks and dependency audit, use the verification image:
 
 ```powershell
-cd backend
-python -m alembic current
-python -m alembic check
-python -m alembic upgrade head
+docker compose -p job-hunting-agent-p2verify --env-file .env --profile verification run --rm backend-test ruff check app tests
+docker compose -p job-hunting-agent-p2verify --env-file .env --profile verification run --rm backend-test pip-audit -r requirements.txt
 ```
 
-To verify the complete migration history, create a uniquely named, empty PostgreSQL database, run `upgrade head`, `downgrade base`, then `upgrade head` against that database only. Keep the verification database unless its removal is separately authorized. Never downgrade, reset, or drop the application database or volume.
+Current checks pass Ruff and report no known Python or npm vulnerabilities for checked dependency sets.
 
-## API smoke checks
+## Production image and HTTPS checks
 
-Register and use the returned access token with `/api/v1/auth/me`, then read/update `/api/v1/profile` and `/api/v1/preferences`. Login and refresh examples are in the README. The test suite also exercises duplicate registration, refresh rotation/replay revocation, user ownership, profile and preference updates, database constraints, and the PostgreSQL health route.
+```powershell
+docker compose -f docker-compose.production.yml --env-file deploy/.env.production config --quiet
+docker compose -f docker-compose.production.yml --env-file deploy/.env.production build backend worker frontend proxy
+```
+
+Production Caddy syntax can be checked with `caddy validate`. To test HTTPS without a public deployment, use an isolated localhost proxy with `APP_DOMAIN=localhost` and Caddy's internal test CA. Verify TLS response headers, frontend `/healthz`, and API forwarding before changing host exposure. Never request a public certificate during local verification.
+
+## Backup and restore test
+
+Take a custom-format `pg_dump -Fc` backup of the project database only. Restore it into a newly created, uniquely named database using `pg_restore --exit-on-error`. Compare table counts, key representative records (without printing personal contents), and Alembic version. Keep the disposable restored DB unless deletion is separately approved. Do not restore over, drop, or downgrade the source database. Test encryption and off-host key separation in the operational backup platform.
+
+## Live integrations and end-to-end data
+
+Only make external provider calls when valid credentials and an explicitly controlled test account/recipient are configured. The current checkout has no OpenAI, Google OAuth, or SMTP credentials; do not claim live tests for them. Server-side Gmail OAuth is implemented, but leave it disabled until credentials are configured and a controlled live account test passes. Use only authorized public career pages or official APIs/feeds. No live collection was forced against user sources, and no job application was submitted.
+
+## Authenticated API smoke workflow
+
+Against a dedicated test account/database, register/login, call `/api/v1/auth/me`, update `/api/v1/profile` and `/api/v1/preferences`, and verify bearer access plus refresh/revocation. Existing test routes exercise these against PostgreSQL. See the README for PowerShell request examples.

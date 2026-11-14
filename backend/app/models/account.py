@@ -1,11 +1,19 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, Timestamped, UUIDPrimaryKey, json_array_type, json_object_type
 from app.models.enums import ResumeParsingStatus
+
+if TYPE_CHECKING:
+    from app.models.applications import Application, ApplicationAuditLog, Notification
+    from app.models.automation import AutomationSettings
+    from app.models.integrations import GoogleOAuthConnection, GoogleOAuthState
+    from app.models.jobs import JobMatch, JobReview, JobSource
+    from app.models.tracking import FollowUp, Interview
 
 
 class User(UUIDPrimaryKey, Timestamped, Base):
@@ -28,6 +36,8 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     audit_logs: Mapped[list["ApplicationAuditLog"]] = relationship(back_populates="actor")
     interviews: Mapped[list["Interview"]] = relationship()
     follow_ups: Mapped[list["FollowUp"]] = relationship()
+    google_oauth_connection: Mapped["GoogleOAuthConnection | None"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
+    google_oauth_states: Mapped[list["GoogleOAuthState"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class UserProfile(UUIDPrimaryKey, Timestamped, Base):

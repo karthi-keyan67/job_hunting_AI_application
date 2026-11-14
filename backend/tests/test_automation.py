@@ -75,7 +75,6 @@ async def test_notifications_are_deduplicated_and_owner_scoped(client, db_sessio
     first_headers = await _auth(client, "notice-one@example.com")
     second_headers = await _auth(client, "notice-two@example.com")
     first_id = (await db_session.scalar(select(User).where(User.email == "notice-one@example.com"))).id
-    second_id = (await db_session.scalar(select(User).where(User.email == "notice-two@example.com"))).id
     settings = await db_session.scalar(select(AutomationSettings).where(AutomationSettings.user_id == first_id))
     settings.email_enabled = False
     await db_session.flush()

@@ -1,0 +1,234 @@
+name: job-hunting-agent-production
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-job_hunting}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [private]
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      APP_ENV: production
+      POSTGRES_DB: ${POSTGRES_DB:-job_hunting}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/google_oauth_client_secret
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      OAUTH_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/oauth_token_encryption_key
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      MATCHING_AI_ENABLED: ${MATCHING_AI_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      CORS_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN}
+      RESUME_STORAGE_ROOT: /data/resumes
+      MAX_RESUME_UPLOAD_BYTES: ${MAX_RESUME_UPLOAD_BYTES:-5242880}
+      AUTOMATION_TIMEZONE: ${AUTOMATION_TIMEZONE:-Asia/Kolkata}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
+    secrets:
+      - postgres_password
+      - jwt_secret
+      - openai_api_key
+      - google_oauth_client_secret
+      - oauth_token_encryption_key
+      - smtp_password
+    volumes:
+      - resume_data:/data/resumes
+    networks: [private, edge]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    command: ["python", "-m", "app.worker"]
+    environment:
+      APP_ENV: production
+      POSTGRES_DB: ${POSTGRES_DB:-job_hunting}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/google_oauth_client_secret
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      OAUTH_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/oauth_token_encryption_key
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      MATCHING_AI_ENABLED: ${MATCHING_AI_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      AUTOMATION_TIMEZONE: ${AUTOMATION_TIMEZONE:-Asia/Kolkata}
+      COLLECTION_TIMEOUT_SECONDS: ${COLLECTION_TIMEOUT_SECONDS:-300}
+      COLLECTION_RETRY_ATTEMPTS: ${COLLECTION_RETRY_ATTEMPTS:-3}
+    secrets:
+      - postgres_password
+      - jwt_secret
+      - openai_api_key
+      - google_oauth_client_secret
+      - oauth_token_encryption_key
+      - smtp_password
+    networks: [private]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 768M
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker_health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+      args:
+        VITE_API_BASE_URL: /api/v1
+    networks: [edge]
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 10s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  proxy:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.caddy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to a domain controlled by you}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL for certificate renewal notices}
+    ports:
+      - "127.0.0.1:80:8080"
+      - "127.0.0.1:443:8443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate -q -O /dev/null https://localhost:8443/proxy-healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  private:
+    internal: true
+  edge:
+
+volumes:
+  postgres_data:
+  resume_data:
+  caddy_data:
+  caddy_config:
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?Set POSTGRES_PASSWORD_FILE}
+  jwt_secret:
+    file: ${JWT_SECRET_FILE:?Set JWT_SECRET_FILE}
+  openai_api_key:
+    file: ${OPENAI_API_KEY_FILE:-./deploy/secrets/openai_api_key.example}
+  google_oauth_client_secret:
+    file: ${GOOGLE_OAUTH_CLIENT_SECRET_FILE:-./deploy/secrets/google_oauth_client_secret.example}
+  oauth_token_encryption_key:
+    file: ${OAUTH_TOKEN_ENCRYPTION_KEY_FILE:-./deploy/secrets/oauth_token_encryption_key.example}
+  smtp_password:
+    file: ${SMTP_PASSWORD_FILE:-./deploy/secrets/smtp_password.example}

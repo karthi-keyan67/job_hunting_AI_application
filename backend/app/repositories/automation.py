@@ -60,15 +60,18 @@ class AutomationRepository:
             key = {"SUCCEEDED": "success", "PARTIAL": "partial", "FAILED": "failure"}.get(status.value, "failure")
             bucket[key] = bucket.get(key, 0) + 1
             bucket["retry_count"] += retries or 0
-            if duration is not None: bucket["collection_duration_seconds"].append(duration)
-            if matching_duration is not None: bucket["matching_duration_seconds"].append(matching_duration)
+            if duration is not None:
+                bucket["collection_duration_seconds"].append(duration)
+            if matching_duration is not None:
+                bucket["matching_duration_seconds"].append(matching_duration)
             bucket["matching_failures"] += int(matching_failed)
         result = []
         for row in sources:
             item = counts.get(row.id, {"success": 0, "partial": 0, "failure": 0, "retry_count": 0, "collection_duration_seconds": [], "matching_duration_seconds": [], "matching_failures": 0})
             item["collection_duration_average_seconds"] = round(sum(item["collection_duration_seconds"]) / len(item["collection_duration_seconds"]), 2) if item["collection_duration_seconds"] else None
             item["matching_duration_average_seconds"] = round(sum(item["matching_duration_seconds"]) / len(item["matching_duration_seconds"]), 2) if item["matching_duration_seconds"] else None
-            item.pop("collection_duration_seconds"); item.pop("matching_duration_seconds")
+            item.pop("collection_duration_seconds")
+            item.pop("matching_duration_seconds")
             result.append({"id": str(row.id), "name": row.name, "status": row.status.value, "last_success_at": row.last_success_at, "last_failure_at": row.last_failure_at, **item})
         return {"sources": result}
 

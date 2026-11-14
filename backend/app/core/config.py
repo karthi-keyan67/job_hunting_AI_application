@@ -17,10 +17,12 @@ class Settings(BaseSettings):
     postgres_db: str = "job_hunting"
     postgres_user: str = "job_hunting"
     postgres_password: str = "change-me"
+    postgres_password_file: Path | None = None
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     verify_database_name: str = "job_hunting_verify"
     jwt_secret: str = Field(default="replace-this-development-secret-before-deploying", min_length=32)
+    jwt_secret_file: Path | None = None
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = Field(default=15, gt=0)
     refresh_token_days: int = Field(default=30, gt=0)
@@ -28,7 +30,14 @@ class Settings(BaseSettings):
     resume_storage_root: Path = Path(__file__).resolve().parents[2] / "var" / "private" / "resumes"
     max_resume_upload_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
     openai_api_key: str | None = None
+    openai_api_key_file: Path | None = None
     openai_model: str = "gpt-4o-mini"
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: str | None = None
+    google_oauth_client_secret_file: Path | None = None
+    google_oauth_redirect_uri: str | None = None
+    oauth_token_encryption_key: str | None = None
+    oauth_token_encryption_key_file: Path | None = None
     matching_ai_enabled: bool = False
     matching_timeout_seconds: int = Field(default=20, ge=1, le=120)
     matching_weights: str = '{"skills":40,"experience":20,"role":15,"location":15,"salary":10}'
@@ -44,11 +53,27 @@ class Settings(BaseSettings):
     smtp_port: int = Field(default=587, ge=1, le=65535)
     smtp_username: str | None = None
     smtp_password: str | None = None
+    smtp_password_file: Path | None = None
     smtp_from_email: str | None = None
     smtp_starttls: bool = True
     auth_login_max_attempts: int = Field(default=10, ge=3, le=50)
     auth_login_window_minutes: int = Field(default=15, ge=1, le=60)
     app_env: str = Field(default="development", pattern="^(development|test|production)$")
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_secret_files(cls, values):
+        if not isinstance(values, dict):
+            return values
+        values = dict(values)
+        for secret_name in ("postgres_password", "jwt_secret", "openai_api_key", "smtp_password", "google_oauth_client_secret", "oauth_token_encryption_key"):
+            path = values.get(f"{secret_name}_file")
+            if path and not values.get(secret_name):
+                try:
+                    values[secret_name] = Path(path).read_text(encoding="utf-8").rstrip("\r\n")
+                except OSError as exc:
+                    raise ValueError(f"Could not read configured {secret_name.upper()}_FILE") from exc
+        return values
 
     @model_validator(mode="after")
     def production_secrets_and_origins(self):
@@ -58,10 +83,20 @@ class Settings(BaseSettings):
             database_password = make_url(self.database_url).password if self.database_url else self.postgres_password
             if database_password in {None, "", "change-me"}:
                 raise ValueError("POSTGRES_PASSWORD must be set in production")
+            if len(database_password) < 20:
+                raise ValueError("POSTGRES_PASSWORD must contain at least 20 characters in production")
             if any(origin == "*" or origin.startswith("http://") for origin in self.cors_origin_list):
                 raise ValueError("Production CORS_ORIGINS must use explicit HTTPS origins")
             if bool(self.smtp_username) != bool(self.smtp_password):
                 raise ValueError("SMTP_USERNAME and SMTP_PASSWORD must be configured together")
+            if bool(self.google_oauth_client_id) != bool(self.google_oauth_client_secret):
+                raise ValueError("Google OAuth client ID and secret must be configured together")
+            if self.google_oauth_client_id and (
+                not self.google_oauth_redirect_uri
+                or not self.google_oauth_redirect_uri.startswith("https://")
+                or not self.oauth_token_encryption_key
+            ):
+                raise ValueError("Google OAuth requires an HTTPS redirect URI and token encryption key")
         return self
 
     @property

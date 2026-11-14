@@ -6,6 +6,8 @@ The requested 17 domain tables are implemented. `auth_refresh_tokens` is an addi
 
 Phase 9 adds `auth_login_attempts`, keyed by a unique SHA-256 fingerprint with a fixed-window start and positive attempt count. Fingerprints use a server secret, client address, and normalized email; raw email/IP values are not persisted. The table has a window index for stale-record cleanup. Revision `f18a3d7c9b20` is additive and follows the Phase 8 head.
 
+Phase 10 adds `google_oauth_states` (hashed one-use state, owner, expiry, consumption timestamp) and `google_oauth_connections` (one per user, encrypted provider credential JSON, granted scopes, expiry, revocation timestamp, optional Gmail address). Credential ciphertext uses the configured Fernet key; raw access and refresh tokens are not stored in database columns. These tables are introduced by additive revision `a9210df6c5be`.
+
 ```mermaid
 erDiagram
   USERS ||--o| USER_PROFILES : has

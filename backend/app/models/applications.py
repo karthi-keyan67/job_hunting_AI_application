@@ -1,11 +1,17 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.models.base import Base, Timestamped, UUIDPrimaryKey, json_array_type, json_object_type
 from app.models.enums import ApplicationStatus, ApprovalType, DraftStatus, DraftType
+
+if TYPE_CHECKING:
+    from app.models.account import ResumeVersion, User
+    from app.models.jobs import Job, JobMatch, JobReview
+    from app.models.tracking import FollowUp, Interview
 
 
 class Application(UUIDPrimaryKey, Timestamped, Base):

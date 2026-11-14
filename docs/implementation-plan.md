@@ -218,4 +218,46 @@ At the end of the Phase 8 report, Phase 9 was still pending approval. The comple
 
 ### Phase 9 disposition
 
-Phase 9 implementation and critical PostgreSQL/API/frontend verification are **Complete**. The medium/low deployment and development-tool findings above remain visible and documented; they do not represent failed critical database/API checks. Phase 10 remains **Pending approval**. No Phase 10 work was started.
+Phase 9 implementation and critical PostgreSQL/API/frontend verification are **Complete**. The medium/low deployment and development-tool findings above remain visible and documented; they do not represent failed critical database/API checks.
+
+## Phase 10 — production readiness and live integrations — in progress (2026-11-14)
+
+### Preflight baseline
+
+- Inspected Phases 1–9, all current security/deployment reports, Compose and Dockerfiles, authentication/session handling, dependency manifests, scheduler, connector registry, OpenAI/SMTP paths, and integration tests before implementation.
+- Existing project database Alembic head: `f18a3d7c9b20`. The project PostgreSQL 16 service remains on host 5433 and healthy. PostgreSQL 17 on 5432 is not used. No database or volume was reset or deleted.
+- Baseline: **67 backend PostgreSQL tests passed**, **14 frontend tests passed**, TypeScript/Vite build succeeded. ESLint reported 38 `any` warnings; Ruff reported 44 findings. Full npm audit reported 7 moderate findings in the TypeScript ESLint → minimatch chain; production-only npm audit was clear.
+
+### Prioritized remediation plan
+
+1. Resolve dependency findings and Ruff errors without forced dependency changes or broad suppressions.
+2. Add an isolated production Compose configuration: non-root backend/worker, built frontend assets, private PostgreSQL, secrets, health checks, bounded resources, and HTTPS proxy/security headers while preserving development Compose.
+3. Test API/container behavior, worker recovery, and migration continuity against PostgreSQL without touching existing data.
+4. Perform a project-database backup and restore only into a new disposable database; compare aggregate/representative data without exposing record contents.
+5. Check configured external credentials without printing them. Run only provider tests permitted by explicit configuration, and record missing OAuth/SMTP/provider setup as blocked rather than simulated success.
+6. Update operational/security documentation and classify every remaining limitation before deciding deployment readiness.
+
+### Phase 10 execution results — 2026-11-14
+
+#### Passed
+
+- Phase 10 security/deployment implementation and Phase 1–9 regression were inspected before edits. No existing PostgreSQL 17 container on port 5432 was contacted. The project PostgreSQL 16 container stayed on port 5433; its database and volumes were not reset, deleted, or recreated.
+- Dependency checks: `npm audit` and `npm audit --omit=dev` report **0 vulnerabilities** after a scoped `minimatch` override. `pip-audit -r requirements.txt` reports **no known vulnerabilities**. `ruff check app tests` passes.
+- Production Compose configuration validates; production backend, worker, frontend, and proxy images all build. Earlier local-only HTTPS verification passed with the configured security headers. No public endpoint or public certificate was configured.
+- Added server-side Google Gmail OAuth authorization, one-use hashed state, encrypted refresh credentials, refresh/revocation paths, and a read-only allowlisted Gmail alert connector. OAuth/provider behavior is covered by mocked tests; no provider credentials were available for live OAuth.
+- Applied additive migration `a9210df6c5be` to the project database. The project database is at this head and `/api/v1/health` reports `{"status":"ok","database":"ok"}`. Compose reports PostgreSQL, backend, frontend, and worker healthy.
+- PostgreSQL catalog reports **31 tables including `alembic_version`**, **72 UUID columns**, **34 JSONB columns**, **10 distinct native enum types**, **94 indexes**, and **41 foreign keys**. Gmail OAuth state and connection tables, their UUID keys, JSONB scopes, uniqueness/indexes, and user foreign keys are present.
+- Created and retained the new disposable database `job_hunting_phase10_migration_verify_20261114`. Full migration history passed `upgrade head`, `downgrade base`, `upgrade head`; final revision is `a9210df6c5be`. Destructive downgrade was confined to this newly created disposable database.
+- Full backend suite against the separate PostgreSQL verification database: **75 passed**. This includes auth registration/login/JWT/refresh revocation, profile/preferences, ownership and constraints, plus Gmail OAuth state/token encryption/refresh/revocation and allowlisted connector tests.
+- Frontend tests: **14 passed**. TypeScript/Vite production build succeeded. Production Compose frontend image also built.
+
+#### Blocked / not fully verified
+
+- Live Google OAuth/Gmail access, OpenAI matching, SMTP delivery, and external job-source collection are not verified: their provider credentials are absent. Gmail connector and provider workflows were tested with mocks only. No email was sent and no external collection was triggered.
+- Public DNS/domain, public ACME certificate issuance, external ingress, and deployment against production secrets are unverified. Production ports remain loopback-bound in the sample deployment configuration.
+- Browser access/refresh tokens still use `sessionStorage`; a full HttpOnly cookie/session design remains a public-launch security requirement.
+- Backup/restore was verified earlier in Phase 10 for the project database using a restricted local dump restored into a separate database. Long-term encrypted off-host backups and point-in-time recovery are not configured.
+
+#### Phase 10 disposition
+
+Phase 10 implementation and local PostgreSQL/production-artifact checks are **substantially complete**, but Phase 10 is **not marked complete** because live provider integrations and public deployment checks require external credentials/domain and a cookie-based session decision. Public deployment remains blocked. Phase 11 is not started.

@@ -2,7 +2,7 @@
 
 A personal job discovery and application preparation workspace. Job review, application-content approval, and manual submission confirmation are separate checkpoints. Applications are never submitted automatically.
 
-## Current scope: Phases 1–8
+## Current scope: Phases 1–8 with Phase 9 verification and Phase 10 hardening work
 
 The repository includes a FastAPI API, React/Vite workspace, PostgreSQL persistence, password authentication with rotating/revocable refresh tokens, authenticated profile/preferences APIs, private resume storage and versioning, authorized job-source ingestion, explainable job matching, job reviews, versioned application drafts, human approval checklists, manual submission handoff, audit history, a user-scoped job-search dashboard, application pipeline, interview and follow-up tracking, and database-backed analytics. AI prepares content only; users review and approve exact versions and submit applications themselves.
 
@@ -91,6 +91,14 @@ The dashboard's **Automation** section shows worker heartbeat, next run, per-sou
 Login failures are rate-limited per hashed client/email fingerprint using PostgreSQL state. Configure `AUTH_LOGIN_MAX_ATTEMPTS` and `AUTH_LOGIN_WINDOW_MINUTES`. `APP_ENV=production` rejects the development JWT secret, default database password, non-HTTPS or wildcard CORS origins, and incomplete SMTP credentials. Production mode also disables interactive OpenAPI documentation. These checks improve startup safety but do not make the development Compose/Vite stack production-ready. Review [docs/security-review.md](docs/security-review.md), [docs/deployment-guide.md](docs/deployment-guide.md), [docs/testing-guide.md](docs/testing-guide.md), and [docs/known-limitations.md](docs/known-limitations.md) before deployment.
 
 The Phase 9 PostgreSQL verification result and migration revision are recorded in [docs/implementation-plan.md](docs/implementation-plan.md). Never run destructive migration verification against the application database or its volume; use a newly created disposable database and retain it unless it is separately approved for deletion.
+
+## Phase 10 production profile
+
+`docker-compose.production.yml` is a separate production-oriented configuration. It builds a non-root backend/worker, a static frontend image without Vite or development dependencies in its runtime layer, a private PostgreSQL service, Docker secret file mounts, bounded resources, health checks, and Caddy TLS termination. Database ports are not published; proxy host ports bind to loopback by default. Caddyfile syntax, a localhost HTTPS handshake, security headers, and the frontend image were verified. The production profile has **not** been deployed and the sample domain is not a live certificate test.
+
+Copy `deploy/.env.production.example` to a private env file, create real secret files in the ignored `deploy/secrets/` directory, replace the example domain/email, and review `docs/deployment-guide.md` before starting the profile. Never use the blank `.example` secret files as production credentials. The existing development project and its database/volumes remain separate.
+
+Phase 10 production artifacts and server-side Gmail OAuth are implemented, but public deployment is not approved: Google OAuth, OpenAI, and SMTP credentials are absent; real provider access, public career-page sources, a domain certificate, and recipient delivery have not been live-tested. The browser still uses bearer tokens in `sessionStorage`; a complete HttpOnly cookie/session design remains before public launch. See [docs/known-limitations.md](docs/known-limitations.md) and [docs/implementation-plan.md](docs/implementation-plan.md) for the verification disposition.
 
 Run full PostgreSQL backend tests against the dedicated verification database and frontend checks with:
 
