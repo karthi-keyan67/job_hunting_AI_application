@@ -14,6 +14,22 @@ Base URL: `/api/v1`. JSON error responses use FastAPI's `{"detail": ...}` struct
 - `POST /auth/logout` — authenticated bearer access token plus JSON `{ "refresh_token" }`; revokes that token family and returns 204.
 - `GET /auth/me` — authenticated; returns `{id, email, is_active}`.
 - `GET /integrations/gmail/status`, `POST /integrations/gmail/authorize`, `GET /integrations/gmail/callback`, and `DELETE /integrations/gmail/connection` — connect/revoke the owner's Gmail OAuth connection. The callback is bound to a hashed, expiring one-use state; only `gmail.readonly` is requested. Tokens are encrypted at rest and never returned to the browser. These endpoints fail closed until Google client credentials, HTTPS callback URI, and an encryption key are configured.
+- `GET /integrations/gmail/reviews?status=NEEDS_REVIEW&limit=100` — list the authenticated user's unknown or unparseable allowlisted alerts. `status` supports `NEEDS_REVIEW`, `REVIEWED`, `IGNORED`, `FILTERED`, or `ALL`.
+- `PATCH /integrations/gmail/reviews/{review_id}` — JSON `{ "status": "REVIEWED" | "IGNORED" }`; ownership-scoped acknowledgement of a review item.
+
+## Job portal connections
+
+All endpoints require a bearer token and are scoped to the authenticated user. Gmail is a separate mailbox authorization; it does not connect or authenticate the user to any job portal. Direct portal integrations remain unavailable unless an approved job-seeker API or permitted feed is added.
+
+- `GET /integrations/job-portals` — capability and status cards for LinkedIn, Naukri, Indeed, Instahyre, Cutshort, and Hirist, including Gmail connection state, per-platform alert-source settings, latest sync result, and direct-integration limitations. `portal_account_connected` remains false for email-alert integrations.
+- `PUT /integrations/job-portals/{platform}/alerts` — create or replace the per-user Gmail alert source settings with `{ "allowed_senders": ["jobs@example.com"], "required_terms": [], "label_ids": [] }`. Supported platform keys are `LINKEDIN`, `NAUKRI`, `INDEED`, `INSTAHYRE`, `CUTSHORT`, and `HIRIST`. Sender addresses are required and validated. This does not connect a portal account.
+- `PATCH /integrations/job-portals/{platform}/discovery` — JSON `{ "enabled": true | false }`. Enabling requires a configured sender and an active Gmail OAuth connection; otherwise returns 409. Direct portal source types remain disabled.
+- `GET /integrations/job-portals/{platform}/history?limit=20` — recent collection runs for that user's alert source, including retry counts and sanitized error summaries.
+- `GET /integrations/job-portals/audit?platform=LINKEDIN&offset=0&limit=50` — newest-first integration audit events, optionally filtered by one supported portal or `GMAIL`.
+
+Gmail disconnect or failed refresh disables that user's enabled Gmail alert sources but retains their configuration and prior collection history. The existing `/integrations/gmail/reviews` queue handles messages that cannot be parsed safely. Every connection, configuration, and discovery toggle change is recorded in the integration-specific audit ledger; tokens remain encrypted in the existing Google OAuth connection model and are never exposed by these endpoints.
+
+Gmail alert sources accept `configuration` with `platform` (`GENERIC`, `LINKEDIN`, `NAUKRI`, `INDEED`, `INSTAHYRE`, `CUTSHORT`, or `HIRIST`), required `allowed_senders`, optional `required_terms`, and optional Gmail `label_ids`. `GENERIC` parses only explicit alert fields and a real URL; portal adapters remain in the review queue until a sanitized representative sample is provided. Message IDs are deduplicated per source; incremental cursor and Gmail pagination state are stored in the source configuration. Unknown emails are retained in `gmail_alert_reviews` with a bounded excerpt for their owner. A manual source collection also retries up to 100 outstanding review messages per run. Existing career-page jobs and manual import flows are unchanged. Apply additive migration `a17f4c29d6b1` before enabling the Gmail review UI.
 
 Duplicate registration returns 409. Invalid, expired, replayed, or revoked tokens return 401. Email and body validation errors return 422.
 

@@ -25,8 +25,13 @@ class CareerPageConnector(JobConnector):
         if not self.source.base_url:
             raise ConnectorError("A career page URL is required")
         validate_public_url(self.source.base_url)
-        if not selectors.get("job_card") or not selectors.get("title") or not selectors.get("company"):
-            raise ConnectorError("Configure job_card, title, and company CSS selectors")
+        has_job_card = isinstance(selectors.get("job_card"), str) and bool(selectors["job_card"].strip())
+        has_title = isinstance(selectors.get("title"), str) and bool(selectors["title"].strip())
+        has_company_selector = isinstance(selectors.get("company"), str) and bool(selectors["company"].strip())
+        company_name = config.get("company_name")
+        has_company_name = isinstance(company_name, str) and bool(company_name.strip())
+        if not has_job_card or not has_title or not (has_company_selector or has_company_name):
+            raise ConnectorError("Configure job_card and title CSS selectors and either a company selector or non-empty company_name")
         interval = config.get("request_interval_seconds", 1)
         if not isinstance(interval, (int, float)) or interval < 0 or interval > 60:
             raise ConnectorError("Request interval must be between 0 and 60 seconds")
@@ -122,7 +127,10 @@ class CareerPageConnector(JobConnector):
         output = []
         for card in soup.select(selectors["job_card"]):
             title = self._text(card, selectors["title"])
-            company = self._text(card, selectors["company"])
+            company = self._text(card, selectors.get("company"))
+            if not company:
+                configured_company = config.get("company_name")
+                company = configured_company.strip() if isinstance(configured_company, str) else None
             if not title or not company:
                 continue
             link = card.select_one(selectors.get("job_url", "a[href]"))

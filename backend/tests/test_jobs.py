@@ -41,6 +41,79 @@ def test_public_career_parser_fixture_handles_missing_fields_and_configured_sala
     assert normalized.apply_url == "https://careers.example.org/careers/role-104"
 
 
+def test_public_career_parser_uses_configured_company_when_selector_is_missing():
+    from bs4 import BeautifulSoup
+
+    configuration = {
+        "company_name": " Citi ",
+        "selectors": {
+            "job_card": ".sr-job-item", "title": ".sr-job-item__title", "location": ".sr-job-location",
+            "work_mode": ".sr-job-type", "job_url": "a.sr-job-item__link",
+        },
+    }
+    page_source = source(configuration=configuration)
+    connector = CareerPageConnector(page_source)
+    connector.validate_configuration()
+    html = """<ul><li class='sr-job-item'><h3 class='sr-job-item__title'>Python Engineer</h3>
+    <span class='sr-job-location'>Chennai, Tamil Nadu, India</span><span class='sr-job-type'>Hybrid</span>
+    <a class='sr-job-item__link' href='/job/python-engineer/123'>View job</a></li></ul>"""
+    jobs = connector._extract(BeautifulSoup(html, "html.parser"), page_source.base_url, configuration["selectors"], configuration)
+
+    assert len(jobs) == 1
+    assert jobs[0]["company_name"] == "Citi"
+    assert jobs[0]["description"] == ""
+    assert jobs[0]["location"] == "Chennai, Tamil Nadu, India"
+    assert jobs[0]["work_mode"] == "Hybrid"
+    assert jobs[0]["job_url"] == "https://careers.example.org/job/python-engineer/123"
+
+
+def test_public_career_parser_requires_company_selector_or_nonempty_fallback():
+    from app.connectors.base import ConnectorError
+
+    selectors = {"job_card": ".opening", "title": ".role"}
+    with pytest.raises(ConnectorError, match="company selector or non-empty company_name"):
+        CareerPageConnector(source(configuration={"selectors": selectors})).validate_configuration()
+    with pytest.raises(ConnectorError, match="company selector or non-empty company_name"):
+        CareerPageConnector(source(configuration={"company_name": "  ", "selectors": selectors})).validate_configuration()
+    # Selector-based configurations remain valid without introducing the fallback key.
+    CareerPageConnector(source(configuration={"selectors": {**selectors, "company": ".employer"}})).validate_configuration()
+
+
+@pytest.mark.asyncio
+async def test_public_career_connector_fetches_static_cards_with_company_fallback(monkeypatch):
+    import asyncio
+    import httpx
+    import app.connectors.career_page as career_module
+
+    monkeypatch.setattr(career_module, "ensure_public_dns", lambda _url: asyncio.sleep(0))
+    requested = []
+    html = """<ul><li class='sr-job-item'><h3 class='sr-job-item__title'>Python Engineer</h3>
+    <span class='sr-job-location'>Chennai, Tamil Nadu, India</span><span class='sr-job-type'>Hybrid</span>
+    <a class='sr-job-item__link' href='/job/python-engineer/123'>View job</a></li></ul>"""
+
+    async def handler(request):
+        requested.append(request.url.path)
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /")
+        return httpx.Response(200, text=html)
+
+    configuration = {
+        "company_name": "Citi", "request_interval_seconds": 0,
+        "selectors": {"job_card": ".sr-job-item", "title": ".sr-job-item__title", "location": ".sr-job-location",
+                      "work_mode": ".sr-job-type", "job_url": "a.sr-job-item__link"},
+    }
+    page_source = source(configuration=configuration, base_url="https://careers.example.org/location/chennai")
+    jobs = await CareerPageConnector(page_source, transport=httpx.MockTransport(handler)).fetch_jobs()
+
+    assert requested == ["/robots.txt", "/location/chennai"]
+    assert len(jobs) == 1
+    assert jobs[0]["company_name"] == "Citi"
+    assert jobs[0]["description"] == ""
+    assert jobs[0]["external_id"] == "https://careers.example.org/job/python-engineer/123"
+    normalized = CareerPageConnector(page_source).normalize_job(jobs[0])
+    assert normalized.company_name == "Citi" and normalized.description == ""
+
+
 @pytest.mark.asyncio
 async def test_public_career_connector_respects_robots_and_extracts_fixture(monkeypatch):
     import httpx
@@ -126,6 +199,91 @@ def test_gmail_job_alert_fixture_parser_filters_sender_and_preserves_message_id(
     assert parsed[0]["company_name"] == "Example AI"
     assert parsed[0]["location"] == "Chennai"
     assert GmailJobAlertConnector.parse_message(raw, ["other@example.org"]) == []
+
+
+def test_gmail_alert_adapter_never_fabricates_company_and_portal_formats_wait_for_samples():
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["From"] = "alerts@example.org"
+    message["Subject"] = "Python Engineer opening"
+    message.set_content("Build APIs. View job: https://jobs.example.org/1")
+    raw = message.as_bytes()
+    assert GmailJobAlertConnector.parse_message(raw, ["alerts@example.org"]) == []
+    for platform in ("LINKEDIN", "NAUKRI", "INDEED", "INSTAHYRE", "CUTSHORT", "HIRIST"):
+        parsed, _body, _sender, _subject, reason = GmailJobAlertConnector._extract(
+            raw, ["alerts@example.org"], [], platform
+        )
+        assert parsed == []
+        assert reason == f"{platform} alert parser awaiting sanitized sample"
+
+
+def test_gmail_generic_alert_accepts_explicit_title_and_company_fields():
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["From"] = "alerts@example.org"
+    message["Subject"] = "New opening"
+    message.set_content("Title: Python Engineer Company: Example Inc Location: Chennai View job: https://jobs.example.org/1")
+    parsed = GmailJobAlertConnector.parse_message(message.as_bytes(), ["alerts@example.org"])
+    assert len(parsed) == 1
+    assert parsed[0]["title"] == "Python Engineer"
+    assert parsed[0]["company_name"] == "Example Inc"
+
+
+@pytest.mark.asyncio
+async def test_gmail_mock_transport_queues_unknown_message_and_advances_incremental_cursor(monkeypatch):
+    import base64
+    from email.message import EmailMessage
+    from types import SimpleNamespace
+    import app.connectors.gmail_alerts as gmail_module
+    from app.services.google_oauth import GoogleOAuthService
+
+    user_id = uuid.uuid4()
+    page_source = source("GMAIL_ALERT", user_id=user_id, configuration={"allowed_senders": ["alerts@example.org"]})
+    message = EmailMessage()
+    message["From"] = "alerts@example.org"
+    message["Subject"] = "Python Engineer opening"
+    message.set_content("A new role. https://jobs.example.org/1")
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
+
+    class FakeSession:
+        def __init__(self): self.added, self.lookups = [], 0
+        async def scalar(self, _query):
+            self.lookups += 1
+            return None if self.lookups == 1 else SimpleNamespace(status="NEEDS_REVIEW", sender="alerts@example.org", subject="Python Engineer opening")
+        async def scalars(self, _query): return SimpleNamespace(all=lambda: [])
+        def add(self, row): self.added.append(row)
+
+    class FakeResponse:
+        def __init__(self, payload): self.status_code, self.payload = 200, payload
+        def json(self): return self.payload
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_args): return None
+        async def get(self, url, *, headers, params):
+            if url.endswith("/messages"):
+                return FakeResponse({"messages": [{"id": "gmail-message-1"}]})
+            return FakeResponse({"raw": raw, "internalDate": "1794700000000"})
+
+    monkeypatch.setattr(gmail_module, "httpx", SimpleNamespace(AsyncClient=lambda **_kwargs: FakeClient()))
+    monkeypatch.setattr("app.core.config.get_settings", lambda: SimpleNamespace(
+        google_oauth_client_id="client", google_oauth_client_secret="secret",
+        google_oauth_redirect_uri="https://app.example.test/callback", oauth_token_encryption_key="key"))
+    async def access_token(self, _user_id): return "mock-token"
+    monkeypatch.setattr(GoogleOAuthService, "access_token", access_token)
+    session = FakeSession()
+
+    result = await GmailJobAlertConnector(page_source, session).fetch_jobs()
+
+    assert result == []
+    assert len(session.added) == 1
+    assert session.added[0].gmail_message_id == "gmail-message-1"
+    assert session.added[0].status == "NEEDS_REVIEW"
+    assert page_source.configuration["last_synced_internal_date_ms"] == 1794700000000
+    assert await GmailJobAlertConnector(page_source, session).fetch_jobs() == []
+    assert len(session.added) == 1
 
 
 @pytest.mark.asyncio

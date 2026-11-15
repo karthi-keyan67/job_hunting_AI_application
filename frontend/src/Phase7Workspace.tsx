@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import AutomationWorkspace from './AutomationWorkspace'
+import JobPreferencesWorkspace from './JobPreferencesWorkspace'
+import JobPortalConnections from './JobPortalConnections'
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 const stages = ['SAVED', 'PREPARING', 'READY_FOR_REVIEW', 'READY_TO_APPLY', 'APPLIED', 'ASSESSMENT', 'INTERVIEW', 'OFFER', 'REJECTED', 'WITHDRAWN', 'ACCEPTED']
@@ -18,7 +20,7 @@ const localDateTime = (value: string) => { const date = new Date(value); const o
 
 export default function Phase7Workspace() {
   const [tokens, setTokens] = useState<Tokens | null>(null)
-  const [section, setSection] = useState('Dashboard')
+  const [section, setSection] = useState(() => window.location.hash === '#job-preferences' ? 'Job Preferences' : window.location.hash === '#job-portal-connections' ? 'Job Portal Connections' : 'Dashboard')
   const [summary, setSummary] = useState<Summary | null>(null)
   const [pipeline, setPipeline] = useState<AppItem[]>([])
   const [apps, setApps] = useState<AppItem[]>([])
@@ -43,6 +45,12 @@ export default function Phase7Workspace() {
     setBusy(true); setError(''); setNotice('')
     try { await action(); if (message) setNotice(message) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Request failed') } finally { setBusy(false) }
   }, [])
+  function navigateSection(item: string) {
+    setSection(item)
+    if (item === 'Job Preferences') window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#job-preferences`)
+    else if (item === 'Job Portal Connections') window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#job-portal-connections`)
+    else if (window.location.hash) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+  }
 
   const loadDashboard = useCallback(async (start = startDate, end = endDate) => {
     if (!tokens) return
@@ -127,7 +135,7 @@ export default function Phase7Workspace() {
     ['Submitted', summary.submitted_applications], ['Interviews', summary.interviews], ['Offers', summary.offers], ['Rejected', summary.rejected_applications],
   ] : []
   return <section className="phase7-shell" aria-label="Dashboard and application tracking">
-    <header className="phase7-heading"><div><p className="eyebrow">YOUR JOB SEARCH</p><h2>Dashboard &amp; application tracking</h2><p>Live counts and records from your account.</p></div><nav className="phase7-nav">{['Dashboard', 'Pipeline', 'Interviews', 'Follow-ups', 'Analytics', 'Automation'].map(item => <button key={item} className={section === item ? 'active' : 'secondary'} onClick={() => setSection(item)}>{item}</button>)}</nav></header>
+    <header className="phase7-heading"><div><p className="eyebrow">YOUR JOB SEARCH</p><h2>Dashboard &amp; application tracking</h2><p>Live counts and records from your account.</p></div><nav className="phase7-nav">{['Dashboard', 'Pipeline', 'Interviews', 'Follow-ups', 'Analytics', 'Automation', 'Job Preferences', 'Job Portal Connections'].map(item => <button key={item} className={section === item ? 'active' : 'secondary'} onClick={() => navigateSection(item)}>{item}</button>)}</nav></header>
     {error && <p role="alert" className="phase7-error">{error}</p>}{notice && <p role="status" className="phase7-notice">{notice}</p>}
     {section === 'Dashboard' && <>
       <form className="phase7-filters" onSubmit={event => { event.preventDefault(); void run(() => loadDashboard(startDate, endDate)) }}><label>From <input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} /></label><label>To <input type="date" value={endDate} onChange={event => setEndDate(event.target.value)} /></label><button disabled={busy}>Apply date range</button><span>Application stages show current records created in this range; total jobs discovered is lifetime.</span></form>
@@ -151,5 +159,7 @@ export default function Phase7Workspace() {
       <article className="phase7-panel"><h3>Jobs collected over time</h3>{analytics.jobs_collected_over_time.length ? analytics.jobs_collected_over_time.map((item: any) => <div className="phase7-bar" key={item.period}><span>{item.period}</span><strong>{item.count}</strong><i style={{ width: `${Math.max(4, item.count / Math.max(1, ...analytics.jobs_collected_over_time.map((x: any) => x.count)) * 100)}%` }} /></div>) : <p className="empty">No collected jobs in this range.</p>}</article>
       <article className="phase7-panel"><h3>Application source distribution</h3>{analytics.source_distribution.length ? analytics.source_distribution.map((item: any) => <div className="phase7-bar" key={item.source}><span>{item.source}</span><strong>{item.count}</strong></div>) : <p className="empty">No application sources in this range.</p>}</article></div></>}</>}
     {section === 'Automation' && tokens && <AutomationWorkspace token={tokens.access_token} />}
+    {section === 'Job Preferences' && tokens && <JobPreferencesWorkspace token={tokens.access_token} request={request} />}
+    {section === 'Job Portal Connections' && tokens && <JobPortalConnections token={tokens.access_token} request={request} />}
   </section>
 }

@@ -8,6 +8,10 @@ Phase 9 adds `auth_login_attempts`, keyed by a unique SHA-256 fingerprint with a
 
 Phase 10 adds `google_oauth_states` (hashed one-use state, owner, expiry, consumption timestamp) and `google_oauth_connections` (one per user, encrypted provider credential JSON, granted scopes, expiry, revocation timestamp, optional Gmail address). Credential ciphertext uses the configured Fernet key; raw access and refresh tokens are not stored in database columns. These tables are introduced by additive revision `a9210df6c5be`.
 
+Multi-portal Gmail alert support adds `gmail_alert_reviews` in additive revision `a17f4c29d6b1`. It stores a per-source Gmail message ID uniqueness key for idempotency, the owning user and source foreign keys, sender/subject/received time, bounded review excerpt, review status, and reason. Gmail sync cursor/page token values live in the existing source JSONB configuration. No email body is stored for filtered alerts; review excerpts are capped at 500 characters and only returned to their owning account.
+
+Job Portal Connections adds `integration_audit_logs` in additive revision `b4831e6c9f20`. Rows are owned by a user and record platform, action, safe summary details, and a timezone-aware event time; an optional source FK is set null when an alert source is deleted so audit history remains. The table has user/time and user/platform/time indexes. It contains no credentials, tokens, sender addresses, or portal passwords. Existing `JobSource`, `CollectionRun`, `GoogleOAuthConnection`, and `GmailAlertReview` tables continue to hold alert configuration, sync history, encrypted Gmail credentials, and unknown-message review respectively.
+
 ```mermaid
 erDiagram
   USERS ||--o| USER_PROFILES : has

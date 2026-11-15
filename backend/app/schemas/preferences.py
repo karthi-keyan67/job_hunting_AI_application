@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -32,3 +33,5 @@ class PreferencesUpdate(BaseModel):
 class PreferencesResponse(PreferencesUpdate):
     model_config = ConfigDict(from_attributes=True)
     user_id: UUID
+    created_at: datetime
+    updated_at: datetime

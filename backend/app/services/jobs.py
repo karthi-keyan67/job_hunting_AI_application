@@ -18,13 +18,15 @@ from app.connectors.security import validate_public_url
 from app.models.account import User
 from app.models.enums import JobSourceStatus, RunStatus
 from app.models.jobs import CollectionRun, Job, JobDuplicate, JobSkill, JobSource
+from app.repositories.google_oauth import GoogleOAuthRepository
+from app.repositories.portal_connections import record_integration_event
 from app.repositories.jobs import JobRepository
 from app.schemas.jobs import JobImport, JobSourceCreate, JobSourcePatch, NormalizedJob
 from app.services.job_normalization import comparison_key, normalize_job
 
 logger = logging.getLogger(__name__)
 SUPPORTED_SOURCES = {"CAREER_PAGE", "GMAIL_ALERT", "MANUAL", *PORTALS}
-SECRET_CONFIG_KEYS = {"password", "access_token", "refresh_token", "client_secret", "secret", "api_key", "authorization"}
+SECRET_CONFIG_KEYS = {"password", "access_token", "refresh_token", "page_token", "client_secret", "secret", "api_key", "authorization"}
 
 
 def safe_source_config(configuration: dict) -> dict:
@@ -45,8 +47,13 @@ def safe_source_config(configuration: dict) -> dict:
 def public_source_config(configuration: dict) -> dict:
     def visit(value):
         if isinstance(value, dict):
-            return {str(key): ("[REDACTED]" if any(secret in str(key).casefold() for secret in SECRET_CONFIG_KEYS) else visit(item))
-                    for key, item in value.items()}
+            result = {}
+            for key, item in value.items():
+                normalized_key = str(key).casefold()
+                if "page_token" in normalized_key:
+                    continue
+                result[str(key)] = "[REDACTED]" if any(secret in normalized_key for secret in SECRET_CONFIG_KEYS) else visit(item)
+            return result
         if isinstance(value, list):
             return [visit(item) for item in value]
         return value
@@ -112,13 +119,18 @@ class JobService:
         config = safe_source_config(payload.configuration)
         if source_type == "GMAIL_ALERT":
             try:
-                config["allowed_senders"] = GmailJobAlertConnector.normalize_sender_allowlist(config.get("allowed_senders"))
+                config = GmailJobAlertConnector.validate_source_configuration(config)
             except ConnectorNotConfigured as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+            if payload.is_enabled and config.get("platform") != "GENERIC":
+                connection = await GoogleOAuthRepository(self.session).get_connection(user_id)
+                if connection is None or connection.revoked_at is not None:
+                    raise HTTPException(status_code=409, detail="Connect Gmail before enabling alert collection")
         source = JobSource(
             user_id=user_id, name=payload.name.strip(), source_type=source_type, connector_type=source_type,
             base_url=payload.base_url, configuration=config,
-            is_enabled=payload.is_enabled, status=JobSourceStatus.ENABLED if payload.is_enabled else JobSourceStatus.DISABLED,
+            is_enabled=payload.is_enabled and source_type not in PORTALS,
+            status=JobSourceStatus.ENABLED if payload.is_enabled and source_type not in PORTALS else JobSourceStatus.DISABLED,
         )
         if source_type == "CAREER_PAGE":
             try:
@@ -126,6 +138,10 @@ class JobService:
             except Exception as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
         self.session.add(source)
+        if source.source_type == "GMAIL_ALERT":
+            record_integration_event(self.session, user_id, str(source.configuration.get("platform", "GENERIC")).upper(),
+                                     "ALERT_SOURCE_CREATED", source_id=source.id,
+                                     details={"discovery_enabled": source.is_enabled})
         await self.session.commit()
         await self.session.refresh(source)
         return source_response(source)
@@ -139,6 +155,8 @@ class JobService:
     async def update_source(self, source_id: UUID, user_id: UUID, payload: JobSourcePatch) -> dict:
         source = await self.get_source(source_id, user_id)
         values = payload.model_dump(exclude_unset=True)
+        if source.source_type in PORTALS and values.get("is_enabled") is True:
+            raise HTTPException(status_code=409, detail="This portal remains disabled until an authorized API or feed is configured")
         if values.get("name", "not-set") is None:
             raise HTTPException(status_code=422, detail="Source name cannot be null")
         if "base_url" in values:
@@ -147,12 +165,20 @@ class JobService:
             values["configuration"] = safe_source_config(values["configuration"])
             if source.source_type == "GMAIL_ALERT":
                 try:
-                    values["configuration"]["allowed_senders"] = GmailJobAlertConnector.normalize_sender_allowlist(values["configuration"].get("allowed_senders"))
+                    values["configuration"] = GmailJobAlertConnector.validate_source_configuration(values["configuration"])
                 except ConnectorNotConfigured as exc:
                     raise HTTPException(status_code=422, detail=str(exc)) from exc
+        previous_enabled = source.is_enabled
+        previous_platform = str((source.configuration or {}).get("platform", "GENERIC")).upper()
+        configuration_changed = "configuration" in values and values["configuration"] != source.configuration
         for key, value in values.items():
             setattr(source, key, value)
         if "is_enabled" in values:
+            if source.source_type == "GMAIL_ALERT" and source.is_enabled and str((source.configuration or {}).get("platform", "GENERIC")).upper() != "GENERIC":
+                connection = await GoogleOAuthRepository(self.session).get_connection(user_id)
+                if connection is None or connection.revoked_at is not None:
+                    await self.session.rollback()
+                    raise HTTPException(status_code=409, detail="Connect Gmail before enabling alert collection")
             source.status = JobSourceStatus.ENABLED if source.is_enabled else JobSourceStatus.DISABLED
         if source.source_type == "CAREER_PAGE":
             try:
@@ -160,6 +186,15 @@ class JobService:
             except Exception as exc:
                 await self.session.rollback()
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if source.source_type == "GMAIL_ALERT":
+            platform = str((source.configuration or {}).get("platform", previous_platform)).upper()
+            if configuration_changed:
+                record_integration_event(self.session, user_id, platform, "ALERT_CONFIGURATION_UPDATED",
+                                         source_id=source.id, details={"changed_fields": ["configuration"]})
+            if "is_enabled" in values and previous_enabled != source.is_enabled:
+                record_integration_event(self.session, user_id, platform,
+                                         "DISCOVERY_ENABLED" if source.is_enabled else "DISCOVERY_DISABLED",
+                                         source_id=source.id, details={"enabled": source.is_enabled, "method": "GMAIL_JOB_ALERTS"})
         await self.session.commit()
         await self.session.refresh(source)
         return source_response(source)
@@ -168,6 +203,10 @@ class JobService:
         source = await self.get_source(source_id, user_id)
         if await self.repo.has_jobs(source_id):
             raise HTTPException(status_code=409, detail="Sources with collected jobs cannot be deleted; disable the source instead")
+        if source.source_type == "GMAIL_ALERT":
+            record_integration_event(self.session, user_id, str(source.configuration.get("platform", "GENERIC")).upper(),
+                                     "ALERT_SOURCE_DELETED", source_id=source.id,
+                                     details={"discovery_enabled": source.is_enabled})
         await self.session.execute(delete(CollectionRun).where(CollectionRun.source_id == source_id))
         await self.session.delete(source)
         await self.session.commit()

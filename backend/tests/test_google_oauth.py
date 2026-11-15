@@ -10,7 +10,7 @@ from google.oauth2.credentials import Credentials
 from sqlalchemy import select
 
 from app.connectors.base import ConnectorNotConfigured
-from app.models import GoogleOAuthConnection, GoogleOAuthState, JobSource, JobSourceStatus, User
+from app.models import GmailAlertReview, GoogleOAuthConnection, GoogleOAuthState, JobSource, JobSourceStatus, User
 from app.services.google_oauth import GMAIL_READONLY_SCOPE, GoogleOAuthService
 
 
@@ -169,9 +169,44 @@ async def test_gmail_oauth_fails_closed_without_provider_configuration(client, m
         lambda: SimpleNamespace(google_oauth_client_id=None, google_oauth_client_secret=None, google_oauth_redirect_uri=None, oauth_token_encryption_key=None),
     )
     headers = await _authenticated_client(client, "gmail-unconfigured@example.com")
+    status = await client.get("/api/v1/integrations/gmail/status", headers=headers)
+    assert status.status_code == 200
+    assert status.json()["oauth_configured"] is False
+    for category in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI", "OAUTH_TOKEN_ENCRYPTION_KEY"):
+        assert category in status.json()["oauth_configuration_message"]
     response = await client.post("/api/v1/integrations/gmail/authorize", headers=headers)
     assert response.status_code == 503
-    assert "not configured" in response.json()["detail"].lower()
+    assert "Gmail connection is unavailable" in response.json()["detail"]
+    assert "GOOGLE_OAUTH_CLIENT_SECRET" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("redirect_uri", "encryption_key", "expected_category"),
+    [
+        ("http://app.example.test/api/v1/integrations/gmail/callback", Fernet.generate_key().decode("ascii"), "GOOGLE_OAUTH_REDIRECT_URI must be a valid HTTPS URL"),
+        ("https://app.example.test/wrong-callback", Fernet.generate_key().decode("ascii"), "GOOGLE_OAUTH_REDIRECT_URI must be a valid HTTPS URL"),
+        ("https://app.example.test:invalid/api/v1/integrations/gmail/callback", Fernet.generate_key().decode("ascii"), "GOOGLE_OAUTH_REDIRECT_URI must be a valid HTTPS URL"),
+        ("https://app.example.test/api/v1/integrations/gmail/callback", "not-a-fernet-key", "OAUTH_TOKEN_ENCRYPTION_KEY must be a valid Fernet key"),
+    ],
+)
+async def test_gmail_oauth_rejects_malformed_redirect_or_encryption_key(
+    client, db_session, monkeypatch, redirect_uri, encryption_key, expected_category
+):
+    settings = _settings(encryption_key)
+    settings.google_oauth_redirect_uri = redirect_uri
+    monkeypatch.setattr("app.services.google_oauth.get_settings", lambda: settings)
+    headers = await _authenticated_client(client, f"gmail-invalid-{abs(hash(expected_category + redirect_uri + encryption_key))}@example.com")
+
+    status = await client.get("/api/v1/integrations/gmail/status", headers=headers)
+    assert status.status_code == 200
+    assert status.json()["oauth_configured"] is False
+    assert expected_category in status.json()["oauth_configuration_message"]
+
+    response = await client.post("/api/v1/integrations/gmail/authorize", headers=headers)
+    assert response.status_code == 503
+    assert expected_category in response.json()["detail"]
+    assert await db_session.scalar(select(GoogleOAuthState)) is None
 
 
 @pytest.mark.asyncio
@@ -229,6 +264,9 @@ async def test_gmail_connector_reads_only_allowlisted_alert_messages(db_session,
 
     monkeypatch.setattr("app.connectors.gmail_alerts.httpx.AsyncClient", lambda **_kwargs: FakeClient())
     result = await GmailJobAlertConnector(source, db_session).fetch_jobs()
-    assert len(result) == 1 and result[0]["company_name"] == "Unknown company"
+    assert result == []
+    review = await db_session.scalar(select(GmailAlertReview).where(GmailAlertReview.gmail_message_id == "message-1"))
+    assert review.status == "NEEDS_REVIEW"
+    assert "company" in review.reason
     assert requested[0][1]["Authorization"] == "Bearer fixture-token"
     assert "from:careers@example.org" in requested[0][2]["q"]

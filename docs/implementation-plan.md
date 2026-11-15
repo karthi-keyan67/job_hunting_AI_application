@@ -261,3 +261,22 @@ Phase 9 implementation and critical PostgreSQL/API/frontend verification are **C
 #### Phase 10 disposition
 
 Phase 10 implementation and local PostgreSQL/production-artifact checks are **substantially complete**, but Phase 10 is **not marked complete** because live provider integrations and public deployment checks require external credentials/domain and a cookie-based session decision. Public deployment remains blocked. Phase 11 is not started.
+
+## Gmail OAuth configuration and popup follow-up — 2026-11-15
+
+### Passed
+
+- The Gmail OAuth status and authorization responses now report missing or malformed configuration by environment-variable category only. They do not include credential values.
+- Authorization validates the callback as an HTTPS URL targeting `/api/v1/integrations/gmail/callback` (without query or fragment) and validates `OAUTH_TOKEN_ENCRYPTION_KEY` with Fernet before creating OAuth state. Invalid configuration continues to fail closed.
+- The Job Sources Gmail connect handler closes its pre-opened blank popup when authorization fails. Job Sources and Job Portal Connections display the same backend-provided configuration message and disable Connect while configuration is invalid.
+- OAuth one-use state validation, encrypted token storage, and the `gmail.readonly` scope remain unchanged.
+- Focused backend PostgreSQL tests: **15 passed**. Frontend tests: **25 passed**. Frontend TypeScript/Vite production build succeeded. Ruff passed for the touched backend service and OAuth tests.
+- Rebuilt and recreated only the backend, worker, and frontend Docker services. All three report healthy; the API health endpoint reports database connectivity and the frontend returns HTTP 200.
+
+### Configuration required for live Gmail authorization
+
+The current deployment has no values configured for `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`, or `OAUTH_TOKEN_ENCRYPTION_KEY`. Gmail OAuth therefore remains unavailable until these are configured with real Google credentials, the deployed HTTPS callback URL, and a valid Fernet key. No credentials were generated or changed.
+
+### Database safety
+
+No migration was applied to the project database and no project database records were changed. Backend tests used the separate disposable `job_hunting_portal_connections_verify_20261115` database; it was already at revision `b4831e6c9f20`, so the test fixture's upgrade-to-head check applied no migration. Test-fixture data cleanup was limited to that verification database. The project PostgreSQL container and volume were not restarted or modified.
